@@ -53,7 +53,18 @@ export type DashboardPayload = {
     pending: number;
     contracts: number;
   }>;
+  leadHistory: LeadHistoryItem[];
   contractHistory: ContractHistoryItem[];
+};
+
+export type LeadHistoryItem = {
+  year: number;
+  month: number;
+  channel: string;
+  city: string;
+  province: string;
+  region: string;
+  leads: number;
 };
 
 export type ContractHistoryItem = {

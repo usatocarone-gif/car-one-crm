@@ -212,6 +212,7 @@ export async function loadGoogleDashboard(now = new Date()): Promise<DashboardPa
     })),
     leadSources,
     sellerConversions,
+    leadHistory: [],
     contractHistory: [],
   };
 }

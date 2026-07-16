@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "comuni-province-regioni": "^0.4.3",
     "googleapis": "^156.0.0",
     "lucide-react": "^0.468.0",
     "next": "^15.1.4",

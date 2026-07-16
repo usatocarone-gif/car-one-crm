@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BarChart3, CalendarDays, CheckCircle2, CircleAlert, FileCheck2, Gauge, LayoutDashboard, RefreshCw, Target, TrendingUp, Users } from "lucide-react";
-import type { ContractHistoryItem, DashboardPayload, DashboardPeriod, PeriodKey } from "@/lib/types";
+import type { ContractHistoryItem, DashboardPayload, DashboardPeriod, LeadHistoryItem, PeriodKey } from "@/lib/types";
 import { snapshot } from "@/lib/snapshot";
 
 const menu = [
@@ -80,29 +80,85 @@ function Dashboard({ payload, period, setPeriod }: { payload: DashboardPayload; 
   </>;
 }
 
+function sumLeadHistory(items: LeadHistoryItem[], key: (item: LeadHistoryItem) => string) {
+  const result = new Map<string, number>();
+  items.forEach((item) => result.set(key(item), (result.get(key(item)) ?? 0) + item.leads));
+  return [...result.entries()].sort((a, b) => b[1] - a[1]);
+}
+
 function SourcesView({ payload }: { payload: DashboardPayload }) {
-  const total = payload.leadSources.reduce((sum, source) => sum + source.leads, 0);
-  const leader = Math.max(...payload.leadSources.map((source) => source.leads));
-  const ranked = [...payload.leadSources].sort((a, b) => b.leads - a.leads);
-  const sourceMetric = (index: number) => ranked[index] ? <Metric label={index ? ranked[index].name : "Canale principale"} value={index ? ranked[index].leads : ranked[index].name} primary={percentage(ranked[index].leads, total)} secondary="del volume totale" /> : <Metric label="Canale" value="—" primary="Nessun dato" secondary="nel periodo" />;
+  const history = payload.leadHistory ?? [];
+  const years = [...new Set(history.map((item) => item.year))].sort((a, b) => b - a);
+  const currentYear = new Date().getFullYear();
+  const [year, setYear] = useState(years.includes(currentYear) ? String(currentYear) : "all");
+  const [month, setMonth] = useState("all");
+  const [channel, setChannel] = useState("all");
+  const [region, setRegion] = useState("all");
+  const channels = [...new Set(history.map((item) => item.channel))].sort();
+  const regions = [...new Set(history.map((item) => item.region))].sort((a, b) => a === "Da classificare" ? 1 : b === "Da classificare" ? -1 : a.localeCompare(b));
+  const filtered = history.filter((item) =>
+    (year === "all" || item.year === Number(year)) &&
+    (month === "all" || item.month === Number(month)) &&
+    (channel === "all" || item.channel === channel) &&
+    (region === "all" || item.region === region)
+  );
+  const total = filtered.reduce((sum, item) => sum + item.leads, 0);
+  const byChannel = sumLeadHistory(filtered, (item) => item.channel);
+  const byRegion = sumLeadHistory(filtered, (item) => item.region);
+  const byCity = sumLeadHistory(filtered, (item) => item.city);
+  const byMonth = sumLeadHistory(filtered, (item) => `${item.year}-${String(item.month).padStart(2, "0")}`)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([key, value]) => {
+      const [itemYear, itemMonth] = key.split("-").map(Number);
+      return [`${MONTHS[itemMonth - 1]} ${String(itemYear).slice(-2)}`, value] as [string, number];
+    });
+  const classified = filtered.filter((item) => item.region !== "Da classificare").reduce((sum, item) => sum + item.leads, 0);
+  const topChannel = byChannel[0];
+  const topRegion = byRegion.find(([name]) => name !== "Da classificare") ?? byRegion[0];
+  const visibleChannels = sumLeadHistory(filtered, (item) => item.channel).slice(0, 5).map(([name]) => name);
+  const visibleRegions = byRegion.filter(([name]) => name !== "Da classificare").slice(0, 8).map(([name]) => name);
+  const matrixValue = (regionName: string, channelName: string) => filtered
+    .filter((item) => item.region === regionName && item.channel === channelName)
+    .reduce((sum, item) => sum + item.leads, 0);
+
   return <>
-    <header className="page-head"><div><p className="eyebrow">Acquisizione</p><h1>Provenienza lead</h1><span>Mese corrente · Origine dal foglio Make Leads</span></div><div className="period-tabs"><button className="active">Mese</button></div></header>
-    <div className="metrics-grid source-metrics">
-      <Metric label="Lead analizzati" value={total} primary={`${payload.leadSources.length} canali`} secondary="mese corrente" />
-      {sourceMetric(0)}{sourceMetric(1)}{sourceMetric(2)}
-    </div>
-    <section className="panel table-panel">
-      <header><div><h3>Performance per canale</h3><p>Volumi, peso e conversioni disponibili</p></div><TrendingUp size={19} /></header>
-      <div className="data-table source-table">
-        <div className="data-row data-head"><span>Canale</span><span>Lead</span><span>Peso</span><span>Lead → App.</span><span>Lead → Contratto</span></div>
-        {payload.leadSources.map((source) => <div className="data-row" key={source.name}>
-          <div className="source-name"><b>{source.name}</b><div className="track"><i style={{ width: `${source.leads / leader * 100}%` }} /></div></div>
-          <strong>{source.leads}</strong><span>{percentage(source.leads, total)}</span>
-          <span className="waiting">Da collegare</span><span className="waiting">Da collegare</span>
-        </div>)}
-      </div>
-      <div className="notice"><CircleAlert size={17} /><span>Le colonne Show, Prev e Contratto del foglio lead sono ancora vuote. Le conversioni compariranno automaticamente quando il funnel sarà collegato.</span></div>
+    <header className="page-head"><div><p className="eyebrow">Acquisizione</p><h1>Provenienza lead</h1><span>Storico Make Leads · canale, regione e zona</span></div></header>
+    <section className="filter-bar">
+      <label><span>Anno</span><select value={year} onChange={(event) => setYear(event.target.value)}><option value="all">Tutti</option>{years.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
+      <label><span>Mese</span><select value={month} onChange={(event) => setMonth(event.target.value)}><option value="all">Tutti</option>{MONTHS.map((item, index) => <option value={index + 1} key={item}>{item}</option>)}</select></label>
+      <label><span>Canale</span><select value={channel} onChange={(event) => setChannel(event.target.value)}><option value="all">Tutti</option>{channels.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
+      <label><span>Regione</span><select value={region} onChange={(event) => setRegion(event.target.value)}><option value="all">Tutte</option>{regions.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
+      <button onClick={() => { setYear("all"); setMonth("all"); setChannel("all"); setRegion("all"); }}>Azzera filtri</button>
     </section>
+    {history.length ? <>
+      <div className="metrics-grid source-metrics">
+        <Metric label="Lead analizzati" value={total} primary={`${byChannel.length} canali`} secondary="nel periodo filtrato" />
+        <Metric label="Canale principale" value={topChannel?.[0] ?? "—"} primary={topChannel ? `${topChannel[1]} lead` : "Nessun dato"} secondary={topChannel ? percentage(topChannel[1], total) : "—"} />
+        <Metric label="Prima regione" value={topRegion?.[0] ?? "—"} primary={topRegion ? `${topRegion[1]} lead` : "Nessun dato"} secondary={topRegion ? percentage(topRegion[1], total) : "—"} />
+        <Metric label="Zone classificate" value={percentage(classified, total)} primary={`${classified} lead`} secondary={`${total - classified} da verificare`} />
+      </div>
+      <div className="history-grid source-history-grid">
+        <section className="panel"><header><div><h3>Andamento mensile</h3><p>Volumi e stagionalità dei lead</p></div><TrendingUp size={19} /></header><BarList rows={byMonth} maxRows={18} /></section>
+        <section className="panel"><header><div><h3>Canali di acquisizione</h3><p>Facebook, Instagram, TikTok e altri</p></div><BarChart3 size={19} /></header><BarList rows={byChannel} /></section>
+        <section className="panel"><header><div><h3>Cluster regionali</h3><p>Lead attribuiti alle regioni italiane</p></div><Users size={19} /></header><BarList rows={byRegion} maxRows={20} /></section>
+        <section className="panel"><header><div><h3>Zone più attive</h3><p>Comuni e località dichiarate nei moduli</p></div><Target size={19} /></header><BarList rows={byCity} maxRows={15} /></section>
+      </div>
+      <section className="panel table-panel cluster-panel">
+        <header><div><h3>Matrice canale × regione</h3><p>Concentrazione geografica dei canali principali</p></div><Gauge size={19} /></header>
+        <div className="cluster-matrix" style={{ gridTemplateColumns: `minmax(150px, 1.25fr) repeat(${visibleChannels.length}, minmax(82px, .7fr)) 74px` }}>
+          <div className="cluster-cell cluster-head">Regione</div>{visibleChannels.map((item) => <div className="cluster-cell cluster-head" key={item}>{item}</div>)}<div className="cluster-cell cluster-head">Totale</div>
+          {visibleRegions.map((regionName) => {
+            const rowTotal = filtered.filter((item) => item.region === regionName).reduce((sum, item) => sum + item.leads, 0);
+            return <div className="cluster-row" style={{ gridColumn: `1 / span ${visibleChannels.length + 2}` }} key={regionName}>
+              <div className="cluster-cell"><b>{regionName}</b></div>
+              {visibleChannels.map((channelName) => <div className="cluster-cell" key={channelName}><span>{matrixValue(regionName, channelName)}</span></div>)}
+              <div className="cluster-cell"><strong>{rowTotal}</strong></div>
+            </div>;
+          })}
+        </div>
+        <div className="notice"><CircleAlert size={17} /><span>Le località non riconosciute restano nel cluster “Da classificare”. In questo modo non attribuiamo automaticamente una regione sbagliata ai dati sporchi o ambigui.</span></div>
+      </section>
+    </> : <section className="placeholder compact"><CircleAlert size={30} /><h2>Storico lead in attesa</h2><p>Aggiorna Apps Script alla versione cluster per caricare le tab mensili di Make Leads.</p></section>}
   </>;
 }
 

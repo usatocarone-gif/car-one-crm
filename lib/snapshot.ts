@@ -87,5 +87,6 @@ export const snapshot: DashboardPayload = {
     { name: "Monacelli", appointments: 9, presented: 7, noShows: 1, pending: 1, contracts: 2 },
     { name: "Bordini", appointments: 5, presented: 2, noShows: 3, pending: 0, contracts: 2 },
   ],
+  leadHistory: [],
   contractHistory: [],
 };

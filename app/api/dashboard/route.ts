@@ -1,9 +1,21 @@
 import { NextResponse } from "next/server";
 import { googleIsConfigured, loadGoogleDashboard } from "@/lib/google-dashboard";
 import { snapshot } from "@/lib/snapshot";
+import { resolveItalianGeo } from "@/lib/italian-geo";
+import type { DashboardPayload } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+function enrichLeadHistory(payload: DashboardPayload) {
+  return {
+    ...payload,
+    leadHistory: (payload.leadHistory ?? []).map((item) => ({
+      ...item,
+      ...resolveItalianGeo(item.city),
+    })),
+  };
+}
 
 export async function GET() {
   try {
@@ -25,7 +37,7 @@ export async function GET() {
       payload = await loadGoogleDashboard();
     }
 
-    return NextResponse.json(payload, {
+    return NextResponse.json(enrichLeadHistory(payload as DashboardPayload), {
       headers: { "Cache-Control": "no-store, max-age=0" },
     });
   } catch (error) {

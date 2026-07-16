@@ -117,6 +117,14 @@ button { font: inherit; }
 .comparison-strip small { color: var(--muted); grid-column: 1 / -1; }
 .comparison-strip .positive { color: var(--success); }
 .comparison-strip .negative { color: var(--brand); }
+.source-history-grid { align-items: start; }
+.cluster-panel { overflow-x: auto; }
+.cluster-matrix { display: grid; min-width: 720px; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.cluster-row { display: contents; }
+.cluster-cell { min-height: 44px; display: flex; align-items: center; padding: 10px 11px; border-bottom: 1px solid var(--line); background: #fff; font-size: 12px; }
+.cluster-cell:not(:first-child) { justify-content: flex-end; text-align: right; }
+.cluster-head { min-height: 38px; background: var(--surface-soft); color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.cluster-row:last-child .cluster-cell { border-bottom: 0; }
 .placeholder { min-height: calc(100vh - 68px); border: 1px dashed #cdd1d7; border-radius: 14px; display: grid; place-content: center; justify-items: center; text-align: center; padding: 30px; color: var(--muted); }
 .placeholder h2 { color: var(--text); margin: 12px 0 4px; }
 .placeholder p { margin: 0 0 10px; max-width: 480px; }
