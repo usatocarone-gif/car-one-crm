@@ -1,0 +1,30 @@
+CAR ONE CRM — ANALISI COMMERCIALE V7
+
+Questa versione sostituisce V5 e V6. Non installare prima gli aggiornamenti precedenti.
+
+1. REPOSITORY
+- Apri la cartella locale car-one-crm con "Show in Explorer" da GitHub Desktop.
+- Estrai questo ZIP in una cartella temporanea.
+- Copia le cartelle app e lib dentro car-one-crm e conferma la sostituzione.
+- In GitHub Desktop usa: Add quote and weekly funnel analytics
+- Premi Commit to main e Push origin.
+- Vercel pubblichera automaticamente il commit.
+
+2. GOOGLE APPS SCRIPT
+- Apri il progetto Apps Script car one crm.
+- In Codice.gs seleziona tutto e incolla CAR_ONE_CRM_API_V7_ANALISI_COMMERCIALE.txt.
+- Salva.
+- Esegui il deployment > Gestisci deployment > icona matita.
+- Seleziona Nuova versione e premi Distribuisci.
+- Mantieni lo stesso URL e lo stesso API_TOKEN.
+
+3. CONTROLLO
+- Home invariata nelle sezioni esistenti, con in piu il KPI Preventivi.
+- Pipeline: Lead > Appuntamenti > Presentati > Preventivi > Contratti.
+- Grafico commerciale: selettore Panoramica, Contratti, Preventivi e Conversione.
+- In Panoramica devono apparire insieme la linea Contratti e la linea Preventivi.
+- Secondo grafico: Appuntamenti, Preventivi e Contratti sulle ultime 12 settimane.
+- Tab Preventivi: filtri, follow-up, esiti, cluster richieste e contratti verificati.
+- Un contratto e considerato definitivo soltanto se il cliente e presente nel file Venduto con data uguale o successiva al preventivo.
+
+Versione Apps Script attesa: 2026-07-16-analisi-commerciale-v7

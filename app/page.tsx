@@ -65,8 +65,12 @@ function Pipeline({ data }: { data: DashboardPeriod }) {
 
 type TrendPoint = {
   label: string;
-  actual: number | null;
-  previous: number;
+  actualContracts: number | null;
+  previousContracts: number;
+  actualQuotes: number | null;
+  previousQuotes: number;
+  conversion: number | null;
+  previousConversion: number | null;
   target: number | null;
   forecast: number | null;
 };
@@ -108,17 +112,26 @@ function buildCommercialTrend(payload: DashboardPayload, selectedPeriod: PeriodK
   const previousEnd = currentStart;
   const dates: Date[] = [];
   for (let cursor = new Date(currentStart); cursor < currentEnd; cursor = addDays(cursor, 1)) dates.push(cursor);
-  const historyDates = (payload.contractHistory ?? []).map((item) => localContractDate(item.date));
-  const currentDaily = dates.map((date) => historyDates.filter((item) => sameCalendarDay(item, date)).length);
+  const contractDates = (payload.contractHistory ?? []).map((item) => localContractDate(item.date));
+  const quoteDates = (payload.quoteHistory ?? []).map((item) => new Date(item.date));
+  const currentDaily = dates.map((date) => contractDates.filter((item) => sameCalendarDay(item, date)).length);
+  const currentQuoteDaily = dates.map((date) => quoteDates.filter((item) => sameCalendarDay(item, date)).length);
   const previousLength = Math.round((previousEnd.getTime() - previousStart.getTime()) / 86400000);
   const previousDaily = dates.map((_, index) => {
     if (index >= previousLength) return 0;
     const date = addDays(previousStart, index);
-    return historyDates.filter((item) => sameCalendarDay(item, date)).length;
+    return contractDates.filter((item) => sameCalendarDay(item, date)).length;
+  });
+  const previousQuoteDaily = dates.map((_, index) => {
+    if (index >= previousLength) return 0;
+    const date = addDays(previousStart, index);
+    return quoteDates.filter((item) => sameCalendarDay(item, date)).length;
   });
   const cumulative = (values: number[]) => values.map((_, index) => values.slice(0, index + 1).reduce((sum, value) => sum + value, 0));
   const currentCumulative = cumulative(currentDaily);
   const previousCumulative = cumulative(previousDaily);
+  const currentQuoteCumulative = cumulative(currentQuoteDaily);
+  const previousQuoteCumulative = cumulative(previousQuoteDaily);
   const currentIndex = Math.max(0, Math.min(dates.length - 1, dates.findIndex((date) => sameCalendarDay(date, now))));
   const periodData = payload.periods[period];
   const target = periodData.target;
@@ -137,23 +150,34 @@ function buildCommercialTrend(payload: DashboardPayload, selectedPeriod: PeriodK
       label: period === "week"
         ? new Intl.DateTimeFormat("it-IT", { weekday: "short" }).format(date)
         : String(date.getDate()),
-      actual: index <= currentIndex ? currentCumulative[index] : null,
-      previous: previousCumulative[index] ?? previousCumulative[previousCumulative.length - 1] ?? 0,
+      actualContracts: index <= currentIndex ? currentCumulative[index] : null,
+      previousContracts: previousCumulative[index] ?? previousCumulative[previousCumulative.length - 1] ?? 0,
+      actualQuotes: index <= currentIndex ? currentQuoteCumulative[index] : null,
+      previousQuotes: previousQuoteCumulative[index] ?? previousQuoteCumulative[previousQuoteCumulative.length - 1] ?? 0,
+      conversion: index <= currentIndex && currentQuoteCumulative[index] ? currentCumulative[index] / currentQuoteCumulative[index] * 100 : null,
+      previousConversion: previousQuoteCumulative[index] ? previousCumulative[index] / previousQuoteCumulative[index] * 100 : null,
       target: target ? (target * sellingToDate) / totalSellingDays : null,
       forecast: projected,
     };
   });
   const previousAtCutoff = previousCumulative[currentIndex] ?? previousCumulative[previousCumulative.length - 1] ?? 0;
-  return { period, points, actualAtCutoff, previousAtCutoff, forecastEnd, target };
+  const quotesAtCutoff = currentQuoteCumulative[currentIndex] ?? 0;
+  return { period, points, currentIndex, actualAtCutoff, previousAtCutoff, quotesAtCutoff, forecastEnd, target };
 }
 
 function CommercialTrend({ payload, period }: { payload: DashboardPayload; period: PeriodKey }) {
   const trend = useMemo(() => buildCommercialTrend(payload, period), [payload, period]);
+  const [mode, setMode] = useState<"overview" | "contracts" | "quotes" | "conversion">("overview");
   const [hovered, setHovered] = useState<number | null>(null);
   const width = 720;
   const height = 250;
   const padding = { left: 38, right: 18, top: 18, bottom: 34 };
-  const values = trend.points.flatMap((point) => [point.actual, point.previous, point.target, point.forecast]).filter((value): value is number => value !== null);
+  const values = trend.points.flatMap((point) => mode === "contracts"
+    ? [point.actualContracts, point.previousContracts, point.target, point.forecast]
+    : mode === "quotes" ? [point.actualQuotes, point.previousQuotes]
+      : mode === "conversion" ? [point.conversion, point.previousConversion]
+        : [point.actualContracts, point.actualQuotes, point.target, point.forecast]
+  ).filter((value): value is number => value !== null);
   const maximum = Math.max(1, ...values);
   const ceiling = Math.max(5, Math.ceil(maximum / 5) * 5);
   const x = (index: number) => padding.left + (index / Math.max(1, trend.points.length - 1)) * (width - padding.left - padding.right);
@@ -164,31 +188,59 @@ function CommercialTrend({ payload, period }: { payload: DashboardPayload; perio
     .map((item) => `${x(item.index)},${y(item.value)}`)
     .join(" ");
   const delta = trend.previousAtCutoff ? ((trend.actualAtCutoff / trend.previousAtCutoff) - 1) * 100 : null;
-  const active = hovered === null ? trend.points.length - 1 : hovered;
+  const active = hovered === null ? trend.currentIndex : hovered;
   const activePoint = trend.points[active];
   const labelEvery = trend.period === "week" ? 1 : Math.max(1, Math.floor(trend.points.length / 5));
 
   return <section className="panel commercial-trend">
-    <header><div><h3>Andamento commerciale e forecast</h3><p>{trend.period === "week" ? "Settimana corrente vs precedente" : "Mese corrente vs precedente"}</p></div><div className="trend-summary"><span><b>{trend.actualAtCutoff}</b> contratti</span><span className={delta !== null && delta >= 0 ? "good" : "trend-negative"}>{delta === null ? "—" : `${delta >= 0 ? "+" : ""}${formatNumber(delta)}%`} vs precedente</span><span><b>{trend.forecastEnd}</b> forecast</span></div></header>
+    <header><div><h3>Andamento commerciale e forecast</h3><p>{trend.period === "week" ? "Settimana corrente vs precedente" : "Mese corrente vs precedente"}</p></div><div className="trend-summary"><span><b>{trend.actualAtCutoff}</b> contratti</span><span><b>{trend.quotesAtCutoff}</b> preventivi</span><span><b>{percentage(trend.actualAtCutoff, trend.quotesAtCutoff)}</b> conversione</span><span className={delta !== null && delta >= 0 ? "good" : "trend-negative"}>{delta === null ? "—" : `${delta >= 0 ? "+" : ""}${formatNumber(delta)}%`} contratti vs precedente</span><span><b>{trend.forecastEnd}</b> forecast</span></div></header>
+    <div className="chart-switcher"><button className={mode === "overview" ? "active" : ""} onClick={() => setMode("overview")}>Panoramica</button><button className={mode === "contracts" ? "active" : ""} onClick={() => setMode("contracts")}>Contratti</button><button className={mode === "quotes" ? "active" : ""} onClick={() => setMode("quotes")}>Preventivi</button><button className={mode === "conversion" ? "active" : ""} onClick={() => setMode("conversion")}>Conversione</button></div>
     {(payload.contractHistory ?? []).length ? <div className="trend-chart-wrap">
       <svg className="trend-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Andamento cumulato contratti, ${trend.actualAtCutoff} attuali e forecast ${trend.forecastEnd}`}>
         {[0, .25, .5, .75, 1].map((ratio) => {
           const value = ceiling * ratio;
           return <g key={ratio}><line x1={padding.left} x2={width - padding.right} y1={y(value)} y2={y(value)} /><text x={padding.left - 8} y={y(value) + 4}>{Math.round(value)}</text></g>;
         })}
-        <polyline className="trend-line previous" points={line((point) => point.previous)} />
-        {trend.target ? <polyline className="trend-line target" points={line((point) => point.target)} /> : null}
-        <polyline className="trend-line forecast" points={line((point) => point.forecast)} />
-        <polyline className="trend-line actual" points={line((point) => point.actual)} />
+        {mode === "contracts" ? <polyline className="trend-line previous" points={line((point) => point.previousContracts)} /> : null}
+        {mode === "quotes" ? <polyline className="trend-line quote-previous" points={line((point) => point.previousQuotes)} /> : null}
+        {mode === "conversion" ? <polyline className="trend-line previous" points={line((point) => point.previousConversion)} /> : null}
+        {(mode === "overview" || mode === "contracts") && trend.target ? <polyline className="trend-line target" points={line((point) => point.target)} /> : null}
+        {(mode === "overview" || mode === "contracts") ? <polyline className="trend-line forecast" points={line((point) => point.forecast)} /> : null}
+        {(mode === "overview" || mode === "contracts") ? <polyline className="trend-line actual" points={line((point) => point.actualContracts)} /> : null}
+        {(mode === "overview" || mode === "quotes") ? <polyline className="trend-line quotes" points={line((point) => point.actualQuotes)} /> : null}
+        {mode === "conversion" ? <polyline className="trend-line conversion" points={line((point) => point.conversion)} /> : null}
         {trend.points.map((point, index) => <g key={index}>
           {(index % labelEvery === 0 || index === trend.points.length - 1) ? <text className="trend-x-label" x={x(index)} y={height - 9}>{point.label}</text> : null}
-          <circle className="trend-hit" cx={x(index)} cy={y(point.actual ?? point.forecast ?? 0)} r="10" tabIndex={0} aria-label={`${point.label}: ${point.actual ?? point.forecast ?? 0} contratti`} onMouseEnter={() => setHovered(index)} onMouseLeave={() => setHovered(null)} onFocus={() => setHovered(index)} onBlur={() => setHovered(null)} />
+          <circle className="trend-hit" cx={x(index)} cy={y(mode === "quotes" ? point.actualQuotes ?? 0 : mode === "conversion" ? point.conversion ?? 0 : point.actualContracts ?? point.forecast ?? 0)} r="10" tabIndex={0} aria-label={`${point.label}: ${point.actualContracts ?? 0} contratti, ${point.actualQuotes ?? 0} preventivi`} onMouseEnter={() => setHovered(index)} onMouseLeave={() => setHovered(null)} onFocus={() => setHovered(index)} onBlur={() => setHovered(null)} />
         </g>)}
-        {activePoint ? <g className="trend-marker"><line x1={x(active)} x2={x(active)} y1={padding.top} y2={height - padding.bottom} /><circle cx={x(active)} cy={y(activePoint.actual ?? activePoint.forecast ?? 0)} r="5" /></g> : null}
+        {activePoint ? <g className="trend-marker"><line x1={x(active)} x2={x(active)} y1={padding.top} y2={height - padding.bottom} /><circle cx={x(active)} cy={y(mode === "quotes" ? activePoint.actualQuotes ?? 0 : mode === "conversion" ? activePoint.conversion ?? 0 : activePoint.actualContracts ?? activePoint.forecast ?? 0)} r="5" /></g> : null}
       </svg>
-      {activePoint ? <div className="trend-tooltip" style={{ left: `${Math.min(92, Math.max(8, (x(active) / width) * 100))}%` }}><b>{activePoint.label}</b><span>Attuale {activePoint.actual ?? "—"}</span><span>Precedente {formatNumber(activePoint.previous)}</span><span>Obiettivo {activePoint.target === null ? "—" : formatNumber(activePoint.target)}</span><span>Forecast {activePoint.forecast === null ? "—" : formatNumber(activePoint.forecast)}</span></div> : null}
+      {activePoint ? <div className="trend-tooltip" style={{ left: `${Math.min(92, Math.max(8, (x(active) / width) * 100))}%` }}><b>{activePoint.label}</b><span>Contratti {activePoint.actualContracts ?? "—"}</span><span>Preventivi {activePoint.actualQuotes ?? "—"}</span><span>Conversione {activePoint.conversion === null ? "—" : `${formatNumber(activePoint.conversion)}%`}</span><span>Contratti precedenti {formatNumber(activePoint.previousContracts)}</span><span>Preventivi precedenti {formatNumber(activePoint.previousQuotes)}</span><span>Obiettivo {activePoint.target === null ? "—" : formatNumber(activePoint.target)}</span><span>Forecast {activePoint.forecast === null ? "—" : formatNumber(activePoint.forecast)}</span></div> : null}
     </div> : <div className="empty-compact">Il grafico sarà disponibile quando lo storico contratti live è caricato.</div>}
-    <div className="trend-legend"><span><i className="actual" />Attuale</span><span><i className="forecast" />Forecast</span><span><i className="target" />Ritmo obiettivo</span><span><i className="previous" />Periodo precedente</span></div>
+    <div className="trend-legend"><span><i className="actual" />Contratti</span><span><i className="quotes" />Preventivi</span><span><i className="forecast" />Forecast contratti</span><span><i className="target" />Ritmo obiettivo</span><span><i className="previous" />Periodo precedente</span></div>
+  </section>;
+}
+
+function WeeklyFlowChart({ payload }: { payload: DashboardPayload }) {
+  const history = payload.weeklyHistory ?? [];
+  const [hovered, setHovered] = useState<number | null>(null);
+  const width = 720;
+  const height = 250;
+  const padding = { left: 38, right: 18, top: 18, bottom: 38 };
+  const ceiling = Math.max(5, Math.ceil(Math.max(1, ...history.flatMap((item) => [item.appointments, item.quotes, item.contracts])) / 5) * 5);
+  const x = (index: number) => padding.left + (index / Math.max(1, history.length - 1)) * (width - padding.left - padding.right);
+  const y = (value: number) => padding.top + (1 - value / ceiling) * (height - padding.top - padding.bottom);
+  const line = (selector: (item: typeof history[number]) => number) => history.map((item, index) => `${x(index)},${y(selector(item))}`).join(" ");
+  const active = hovered ?? Math.max(0, history.length - 1);
+  const activePoint = history[active];
+  return <section className="panel commercial-trend weekly-flow"><header><div><h3>Funnel settimana per settimana</h3><p>Appuntamenti, preventivi e contratti nelle ultime {history.length || 12} settimane</p></div>{activePoint ? <div className="trend-summary"><span><b>{activePoint.appointments}</b> app.</span><span><b>{activePoint.quotes}</b> preventivi</span><span><b>{activePoint.contracts}</b> contratti</span></div> : null}</header>
+    {history.length >= 10 ? <div className="trend-chart-wrap"><svg className="trend-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Andamento settimanale di appuntamenti, preventivi e contratti">
+      {[0, .25, .5, .75, 1].map((ratio) => { const value = ceiling * ratio; return <g key={ratio}><line x1={padding.left} x2={width - padding.right} y1={y(value)} y2={y(value)} /><text x={padding.left - 8} y={y(value) + 4}>{Math.round(value)}</text></g>; })}
+      <polyline className="trend-line appointments" points={line((item) => item.appointments)} /><polyline className="trend-line quotes" points={line((item) => item.quotes)} /><polyline className="trend-line actual" points={line((item) => item.contracts)} />
+      {history.map((item, index) => <g key={item.weekStart}><text className="trend-x-label" x={x(index)} y={height - 10}>{item.label}</text><circle className="trend-hit" cx={x(index)} cy={y(item.quotes)} r="12" tabIndex={0} onMouseEnter={() => setHovered(index)} onMouseLeave={() => setHovered(null)} onFocus={() => setHovered(index)} onBlur={() => setHovered(null)} /></g>)}
+      {activePoint ? <g className="trend-marker"><line x1={x(active)} x2={x(active)} y1={padding.top} y2={height - padding.bottom} /><circle cx={x(active)} cy={y(activePoint.quotes)} r="5" /></g> : null}
+    </svg>{activePoint ? <div className="trend-tooltip" style={{ left: `${Math.min(92, Math.max(8, (x(active) / width) * 100))}%` }}><b>{activePoint.label}</b><span>Appuntamenti {activePoint.appointments}</span><span>Preventivi {activePoint.quotes}</span><span>Contratti {activePoint.contracts}</span><span>App. → preventivo {percentage(activePoint.quotes, activePoint.appointments)}</span><span>Preventivo → contratto {percentage(activePoint.contracts, activePoint.quotes)}</span></div> : null}</div> : <div className="empty-compact">Il grafico si attiverà dopo l’aggiornamento Apps Script con almeno 10 settimane.</div>}
+    <div className="trend-legend"><span><i className="appointments" />Appuntamenti</span><span><i className="quotes" />Preventivi</span><span><i className="actual" />Contratti</span></div>
   </section>;
 }
 
@@ -219,6 +271,7 @@ function Dashboard({ payload, period, setPeriod }: { payload: DashboardPayload; 
     </div>
     <div className="two-columns"><GoalPanel data={data} /><Pipeline data={data} /></div>
     <CommercialTrend payload={payload} period={period} />
+    <WeeklyFlowChart payload={payload} />
     <div className="two-columns lower">
       <AppointmentsPanel payload={payload} />
       <section className="panel"><header><div><h3>Performance venditori</h3><p>Contratti Car One + AD Motor</p></div><BarChart3 size={19} /></header><div className="seller-list">{data.sellers.length ? data.sellers.map((seller) => <div className="seller-row" key={seller.name}><div><b>{seller.name}</b><span>{seller.carOne} Car One · {seller.adMotor} AD</span></div><strong>{seller.contracts}</strong><div className="track"><i style={{ width: `${Math.max(8, seller.contracts / Math.max(...data.sellers.map((s) => s.contracts)) * 100)}%` }} /></div></div>) : <div className="empty-compact">I risultati venditore sono disponibili nelle viste settimanale e mensile.</div>}</div></section>
@@ -318,6 +371,27 @@ function quoteOutcome(item: QuoteHistoryItem) {
   return "Esito libero";
 }
 
+function clientKey(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/\([^)]*\)/g, " ").replace(/[^A-Z0-9 ]/g, " ").split(/\s+/).filter((token) => token.length > 1 && !["SIG", "SIGRA", "SIGNORE", "SIGNORA"].includes(token)).sort().join(" ");
+}
+
+function quoteMatchesContract(item: QuoteHistoryItem, contract: ContractHistoryItem) {
+  const quoteClient = clientKey(item.client);
+  const quoteDate = new Date(item.date);
+  const contractDate = localContractDate(contract.date);
+  return Boolean(quoteClient) && clientKey(contract.client ?? "") === quoteClient && contractDate >= new Date(quoteDate.getFullYear(), quoteDate.getMonth(), quoteDate.getDate());
+}
+
+function quoteIsSold(item: QuoteHistoryItem, contracts: ContractHistoryItem[]) {
+  return contracts.some((contract) => quoteMatchesContract(item, contract));
+}
+
+function quoteDisplayStatus(item: QuoteHistoryItem, contracts: ContractHistoryItem[]) {
+  if (quoteIsSold(item, contracts)) return "Venduto";
+  const operational = quoteOutcome(item);
+  return operational === "Contratto" ? "Contratto da verificare" : operational;
+}
+
 function quoteVehicleCluster(value: string) {
   const text = value.toLowerCase();
   if (!text.trim()) return "Non specificata";
@@ -336,6 +410,7 @@ function sumQuotes(items: QuoteHistoryItem[], key: (item: QuoteHistoryItem) => s
 
 function QuotesView({ payload }: { payload: DashboardPayload }) {
   const history = payload.quoteHistory ?? [];
+  const soldContracts = payload.contractHistory ?? [];
   const now = new Date();
   const years = [...new Set(history.map((item) => item.year))].sort((a, b) => b - a);
   const sellers = [...new Set(history.map((item) => item.seller))].filter(Boolean).sort();
@@ -347,13 +422,13 @@ function QuotesView({ payload }: { payload: DashboardPayload }) {
     (year === "all" || item.year === Number(year)) &&
     (month === "all" || item.month === Number(month)) &&
     (seller === "all" || item.seller === seller) &&
-    (outcome === "all" || quoteOutcome(item) === outcome)
+    (outcome === "all" || quoteDisplayStatus(item, soldContracts) === outcome)
   );
-  const converted = filtered.filter((item) => quoteOutcome(item) === "Contratto").length;
+  const converted = soldContracts.filter((contract) => filtered.some((item) => quoteMatchesContract(item, contract))).length;
   const followUps = filtered.filter((item) => ["Da risentire", "In contatto"].includes(quoteOutcome(item))).length;
   const withVehicle = filtered.filter((item) => item.vehicle.trim()).length;
   const bySeller = sumQuotes(filtered, (item) => item.seller || "Non assegnato");
-  const byOutcome = sumQuotes(filtered, quoteOutcome);
+  const byOutcome = sumQuotes(filtered, (item) => quoteDisplayStatus(item, soldContracts));
   const byVehicle = sumQuotes(filtered, (item) => quoteVehicleCluster(item.vehicle));
   const byMonth = sumQuotes(filtered, (item) => `${item.year}-${String(item.month).padStart(2, "0")}`)
     .sort((a, b) => a[0].localeCompare(b[0]))
@@ -369,14 +444,14 @@ function QuotesView({ payload }: { payload: DashboardPayload }) {
       <label><span>Anno</span><select value={year} onChange={(event) => setYear(event.target.value)}><option value="all">Tutti</option>{years.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
       <label><span>Mese</span><select value={month} onChange={(event) => setMonth(event.target.value)}><option value="all">Tutti</option>{MONTHS.map((item, index) => <option value={index + 1} key={item}>{item}</option>)}</select></label>
       <label><span>Venditore</span><select value={seller} onChange={(event) => setSeller(event.target.value)}><option value="all">Tutti</option>{sellers.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
-      <label><span>Esito</span><select value={outcome} onChange={(event) => setOutcome(event.target.value)}><option value="all">Tutti</option>{["Contratto", "Da risentire", "In contatto", "Perso / rimandato", "Esito libero", "Senza esito"].map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
+      <label><span>Esito</span><select value={outcome} onChange={(event) => setOutcome(event.target.value)}><option value="all">Tutti</option>{["Venduto", "Contratto da verificare", "Da risentire", "In contatto", "Perso / rimandato", "Esito libero", "Senza esito"].map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
       <button onClick={() => { setYear("all"); setMonth("all"); setSeller("all"); setOutcome("all"); }}>Azzera filtri</button>
     </section>
     {history.length ? <>
       <div className="metrics-grid">
         <Metric label="Preventivi" value={filtered.length} primary={`${bySeller.length} venditori`} secondary="nel periodo filtrato" />
         <Metric label="Da lavorare" value={followUps} primary={percentage(followUps, filtered.length)} secondary="da risentire o in contatto" />
-        <Metric label="Contratti segnalati" value={converted} primary={percentage(converted, filtered.length)} secondary="conversione registrata" />
+        <Metric label="Contratti verificati" value={converted} primary={percentage(converted, filtered.length)} secondary="dal file Venduto" />
         <Metric label="Richiesta descritta" value={percentage(withVehicle, filtered.length)} primary={`${withVehicle} preventivi`} secondary="utilizzabili per i cluster" />
       </div>
       <div className="history-grid">
@@ -387,7 +462,7 @@ function QuotesView({ payload }: { payload: DashboardPayload }) {
       </div>
       <section className="panel table-panel quotes-table"><header><div><h3>Preventivi recenti</h3><p>Ultime trattative nel periodo selezionato</p></div><FileText size={19} /></header><div className="data-table">
         <div className="data-row data-head"><span>Data</span><span>Cliente</span><span>Venditore</span><span>Veicolo / richiesta</span><span>Stato</span></div>
-        {recent.map((item, index) => <div className="data-row" key={`${item.date}-${item.client}-${index}`}><span>{new Intl.DateTimeFormat("it-IT", { day: "2-digit", month: "2-digit", year: "2-digit" }).format(new Date(item.date))}</span><b>{item.client || "—"}</b><span>{item.seller || "—"}</span><span>{item.vehicle || "Non specificata"}</span><strong>{quoteOutcome(item)}</strong></div>)}
+        {recent.map((item, index) => <div className="data-row" key={`${item.date}-${item.client}-${index}`}><span>{new Intl.DateTimeFormat("it-IT", { day: "2-digit", month: "2-digit", year: "2-digit" }).format(new Date(item.date))}</span><b>{item.client || "—"}</b><span>{item.seller || "—"}</span><span>{item.vehicle || "Non specificata"}</span><strong>{quoteDisplayStatus(item, soldContracts)}</strong></div>)}
       </div></section>
     </> : <section className="placeholder compact"><CircleAlert size={30} /><h2>Preventivi in attesa</h2><p>Aggiorna Apps Script alla versione Preventivi per caricare il tab Make Leads.</p></section>}
   </>;

@@ -44,6 +44,7 @@ export type DashboardPayload = {
   todayAgenda: AppointmentItem[];
   upcomingAgenda?: Array<AppointmentItem & { date: string }>;
   quoteHistory?: QuoteHistoryItem[];
+  weeklyHistory?: WeeklyCommercialItem[];
   leadSources: Array<{
     name: string;
     leads: number;
@@ -91,4 +92,13 @@ export type ContractHistoryItem = {
   seller: string;
   company: "Car One" | "AD Motor";
   origin: string;
+  client?: string;
+};
+
+export type WeeklyCommercialItem = {
+  weekStart: string;
+  label: string;
+  appointments: number;
+  quotes: number;
+  contracts: number;
 };

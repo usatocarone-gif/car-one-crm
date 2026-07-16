@@ -80,6 +80,7 @@ export const snapshot: DashboardPayload = {
   ],
   upcomingAgenda: [],
   quoteHistory: [],
+  weeklyHistory: [],
   leadSources: [
     { name: "Facebook", leads: 551, appointments: null, contracts: null },
     { name: "Instagram", leads: 199, appointments: null, contracts: null },

@@ -125,6 +125,9 @@ button { font: inherit; }
 .comparison-strip .negative { color: var(--brand); }
 .commercial-trend { margin-top: 14px; overflow: hidden; }
 .commercial-trend > header { align-items: center; }
+.chart-switcher { display: inline-flex; gap: 3px; margin: -4px 0 12px; padding: 3px; border-radius: 8px; background: var(--surface-soft); }
+.chart-switcher button { border: 0; background: transparent; color: var(--muted); padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size: 11px; }
+.chart-switcher button.active { background: var(--text); color: #fff; }
 .trend-summary { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
 .trend-summary span { border-radius: 99px; background: var(--surface-soft); color: var(--muted); padding: 6px 9px; font-size: 11px; }
 .trend-summary b { color: var(--text); }
@@ -136,6 +139,10 @@ button { font: inherit; }
 .trend-chart .trend-x-label { text-anchor: middle; }
 .trend-line { fill: none; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .trend-line.actual { stroke: var(--brand); stroke-width: 3; }
+.trend-line.quotes { stroke: #2f78c4; stroke-width: 2.5; }
+.trend-line.quote-previous { stroke: #8bb7e5; stroke-width: 2; stroke-dasharray: 4 4; }
+.trend-line.conversion { stroke: #7b4bb7; stroke-width: 3; }
+.trend-line.appointments { stroke: #d18a18; stroke-width: 2.5; }
 .trend-line.forecast { stroke: var(--brand); stroke-width: 2; stroke-dasharray: 6 5; opacity: .65; }
 .trend-line.target { stroke: var(--success); stroke-width: 1.5; stroke-dasharray: 3 4; }
 .trend-line.previous { stroke: #8a909a; stroke-width: 2; }
@@ -149,8 +156,11 @@ button { font: inherit; }
 .trend-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .trend-legend i { width: 20px; height: 3px; border-radius: 99px; background: #8a909a; }
 .trend-legend i.actual { background: var(--brand); }
+.trend-legend i.quotes { background: #2f78c4; }
+.trend-legend i.appointments { background: #d18a18; }
 .trend-legend i.forecast { background: repeating-linear-gradient(90deg, var(--brand) 0 5px, transparent 5px 8px); }
 .trend-legend i.target { background: repeating-linear-gradient(90deg, var(--success) 0 3px, transparent 3px 6px); }
+.weekly-flow { margin-top: 14px; }
 .source-history-grid { align-items: start; }
 .cluster-panel { overflow-x: auto; }
 .cluster-matrix { display: grid; min-width: 720px; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
