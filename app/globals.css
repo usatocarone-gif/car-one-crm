@@ -39,6 +39,7 @@ button { font: inherit; }
 .period-tabs button { border: 0; background: transparent; padding: 8px 12px; border-radius: 7px; color: var(--muted); cursor: pointer; font-size: 13px; }
 .period-tabs button.active { background: var(--text); color: #fff; }
 .metrics-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.dashboard-metrics { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .metric-card, .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
 .metric-card { padding: 16px; display: grid; gap: 8px; }
 .metric-card > span { color: var(--muted); font-size: 12px; }
@@ -94,6 +95,7 @@ button { font: inherit; }
 .data-head { padding-top: 4px; color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
 .source-table .data-row { grid-template-columns: minmax(180px, 1.4fr) .45fr .55fr .85fr .95fr; }
 .seller-table .data-row { grid-template-columns: minmax(130px, 1.2fr) repeat(5, minmax(80px, .7fr)); }
+.quotes-table .data-row { grid-template-columns: 82px minmax(140px, .8fr) minmax(130px, .8fr) minmax(260px, 1.8fr) minmax(120px, .8fr); }
 .source-name { display: grid; gap: 7px; }
 .source-name .track { height: 5px; max-width: 260px; }
 .waiting { color: var(--warning); font-size: 11px; background: #fff6e8; padding: 5px 8px; border-radius: 99px; width: fit-content; }
@@ -172,13 +174,14 @@ button { font: inherit; }
   .sidebar nav button { justify-content: center; }
   .sidebar footer { grid-template-columns: 1fr; justify-items: center; }
   .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dashboard-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 720px) {
   .app-shell { display: block; }
   .sidebar { position: sticky; top: 0; z-index: 5; padding: 9px 12px; flex-direction: row; align-items: center; gap: 8px; }
   .brand { display: none; }
-  .sidebar nav { grid-template-columns: repeat(5, 1fr); flex: 1; }
+  .sidebar nav { grid-template-columns: repeat(6, 1fr); flex: 1; }
   .sidebar nav button { padding: 9px 6px; }
   .sidebar footer { display: none; }
   .content { padding: 20px 14px 32px; }

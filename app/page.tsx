@@ -1,14 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BarChart3, CalendarDays, CheckCircle2, CircleAlert, FileCheck2, Gauge, LayoutDashboard, RefreshCw, Target, TrendingUp, Users } from "lucide-react";
-import type { AppointmentItem, ContractHistoryItem, DashboardPayload, DashboardPeriod, LeadHistoryItem, PeriodKey } from "@/lib/types";
+import { BarChart3, CalendarDays, CheckCircle2, CircleAlert, FileCheck2, FileText, Gauge, LayoutDashboard, RefreshCw, Target, TrendingUp, Users } from "lucide-react";
+import type { AppointmentItem, ContractHistoryItem, DashboardPayload, DashboardPeriod, LeadHistoryItem, PeriodKey, QuoteHistoryItem } from "@/lib/types";
 import { snapshot } from "@/lib/snapshot";
 
 const menu = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "sources", label: "Provenienza lead", icon: TrendingUp },
   { id: "agenda", label: "Agenda", icon: CalendarDays },
+  { id: "quotes", label: "Preventivi", icon: FileText },
   { id: "contracts", label: "Contratti", icon: FileCheck2 },
   { id: "sellers", label: "Conversione venditori", icon: BarChart3 },
 ];
@@ -54,6 +55,7 @@ function Pipeline({ data }: { data: DashboardPeriod }) {
     ["Lead", data.leads, 100],
     ["Appuntamenti", data.appointments, data.leads ? data.appointments / data.leads * 100 : 0],
     ["Presentati", data.presented, data.leads ? data.presented / data.leads * 100 : 0],
+    ["Preventivi", data.quotes ?? 0, data.leads ? (data.quotes ?? 0) / data.leads * 100 : 0],
     ["Contratti", data.contracts, data.leads ? data.contracts / data.leads * 100 : 0],
   ] as const;
   return <section className="panel pipeline"><header><div><h3>Pipeline commerciale</h3><p>Volumi e conversioni del periodo</p></div><Gauge size={19} /></header>
@@ -208,10 +210,11 @@ function Dashboard({ payload, period, setPeriod }: { payload: DashboardPayload; 
   const overdueAppointments = data.overdueAppointments ?? Math.max(0, data.pendingAppointments - upcomingAppointments);
   return <>
     <header className="page-head"><div><p className="eyebrow">Controllo commerciale</p><h1>Buongiorno, David</h1><span>{data.subtitle}</span></div><div className="period-tabs">{(["today", "week", "month"] as PeriodKey[]).map((key) => <button key={key} className={period === key ? "active" : ""} onClick={() => setPeriod(key)}>{payload.periods[key].label}</button>)}</div></header>
-    <div className="metrics-grid">
+    <div className="metrics-grid dashboard-metrics">
       <Metric label="Lead" value={data.leads} primary={period === "today" ? "Nuovi oggi" : `${percentage(data.appointments, data.leads)} con appuntamento`} secondary="dal Foglio Google" />
       <Metric label="Appuntamenti" value={data.appointments} primary={`${upcomingAppointments} opportunità future`} secondary={`${overdueAppointments} passati da aggiornare`} />
       <Metric label="Presentati" value={data.presented} primary={`${percentage(data.presented, resolved)} show rate`} secondary={`${data.noShows} no-show`} />
+      <Metric label="Preventivi" value={data.quotes ?? 0} primary={percentage(data.contracts, data.quotes ?? 0)} secondary="preventivi → contratti" />
       <Metric label="Contratti" value={data.contracts} primary={`${data.carOneContracts} Car One`} secondary={`${data.adMotorContracts} AD Motor`} />
     </div>
     <div className="two-columns"><GoalPanel data={data} /><Pipeline data={data} /></div>
@@ -302,6 +305,91 @@ function SourcesView({ payload }: { payload: DashboardPayload }) {
         <div className="notice"><CircleAlert size={17} /><span>Le località non riconosciute restano nel cluster “Da classificare”. In questo modo non attribuiamo automaticamente una regione sbagliata ai dati sporchi o ambigui.</span></div>
       </section>
     </> : <section className="placeholder compact"><CircleAlert size={30} /><h2>Storico lead in attesa</h2><p>Aggiorna Apps Script alla versione cluster per caricare le tab mensili di Make Leads.</p></section>}
+  </>;
+}
+
+function quoteOutcome(item: QuoteHistoryItem) {
+  const text = `${item.outcome} ${item.feedback}`.toLowerCase();
+  if (text.includes("contratt")) return "Contratto";
+  if (text.includes("in contatto")) return "In contatto";
+  if (text.includes("da risentire") || text.includes("richiam") || text.includes("appuntamento") || text.includes("app.to")) return "Da risentire";
+  if (!text.trim()) return "Senza esito";
+  if (["prezzo alto", "ritiro usato basso", "acquisto rimandato", "non abbiamo", "troppo distant", "acquistato altrove", "solo info"].some((value) => text.includes(value))) return "Perso / rimandato";
+  return "Esito libero";
+}
+
+function quoteVehicleCluster(value: string) {
+  const text = value.toLowerCase();
+  if (!text.trim()) return "Non specificata";
+  if (["vivaro", "talento", "trafic", "fiorino", "doblo", "doblò", "commerciale"].some((key) => text.includes(key))) return "Veicoli commerciali";
+  if (["suv", "crossover", "q3", "q5", "x1", "x3", "x5", "x6", "stelvio", "evoque", "sportage", "2008", "3008", "5008", "mokka", "tonale", "compass", "rav 4", "rav4", "country", "kamiq", "tiguan"].some((key) => text.includes(key))) return "SUV e crossover";
+  if (["500", "panda", "yaris", "clio", "polo", "corsa", "fiesta", "picanto", "lancia y", "ypsilon", "ibiza", "208", "city car"].some((key) => text.includes(key))) return "Utilitarie e city car";
+  if (["audi", "bmw", "mercedes", "classe", "golf", "octavia", "superb", "mini"].some((key) => text.includes(key))) return "Premium e berline";
+  return "Altro / multimodello";
+}
+
+function sumQuotes(items: QuoteHistoryItem[], key: (item: QuoteHistoryItem) => string) {
+  const result = new Map<string, number>();
+  items.forEach((item) => result.set(key(item), (result.get(key(item)) ?? 0) + 1));
+  return [...result.entries()].sort((a, b) => b[1] - a[1]);
+}
+
+function QuotesView({ payload }: { payload: DashboardPayload }) {
+  const history = payload.quoteHistory ?? [];
+  const now = new Date();
+  const years = [...new Set(history.map((item) => item.year))].sort((a, b) => b - a);
+  const sellers = [...new Set(history.map((item) => item.seller))].filter(Boolean).sort();
+  const [year, setYear] = useState(years.includes(now.getFullYear()) ? String(now.getFullYear()) : "all");
+  const [month, setMonth] = useState(history.some((item) => item.year === now.getFullYear() && item.month === now.getMonth() + 1) ? String(now.getMonth() + 1) : "all");
+  const [seller, setSeller] = useState("all");
+  const [outcome, setOutcome] = useState("all");
+  const filtered = history.filter((item) =>
+    (year === "all" || item.year === Number(year)) &&
+    (month === "all" || item.month === Number(month)) &&
+    (seller === "all" || item.seller === seller) &&
+    (outcome === "all" || quoteOutcome(item) === outcome)
+  );
+  const converted = filtered.filter((item) => quoteOutcome(item) === "Contratto").length;
+  const followUps = filtered.filter((item) => ["Da risentire", "In contatto"].includes(quoteOutcome(item))).length;
+  const withVehicle = filtered.filter((item) => item.vehicle.trim()).length;
+  const bySeller = sumQuotes(filtered, (item) => item.seller || "Non assegnato");
+  const byOutcome = sumQuotes(filtered, quoteOutcome);
+  const byVehicle = sumQuotes(filtered, (item) => quoteVehicleCluster(item.vehicle));
+  const byMonth = sumQuotes(filtered, (item) => `${item.year}-${String(item.month).padStart(2, "0")}`)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([key, value]) => {
+      const [itemYear, itemMonth] = key.split("-").map(Number);
+      return [`${MONTHS[itemMonth - 1]} ${String(itemYear).slice(-2)}`, value] as [string, number];
+    });
+  const recent = [...filtered].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 12);
+
+  return <>
+    <header className="page-head"><div><p className="eyebrow">Trattative</p><h1>Preventivi</h1><span>Make Leads · volumi, follow-up, richieste e motivi di perdita</span></div></header>
+    <section className="filter-bar">
+      <label><span>Anno</span><select value={year} onChange={(event) => setYear(event.target.value)}><option value="all">Tutti</option>{years.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
+      <label><span>Mese</span><select value={month} onChange={(event) => setMonth(event.target.value)}><option value="all">Tutti</option>{MONTHS.map((item, index) => <option value={index + 1} key={item}>{item}</option>)}</select></label>
+      <label><span>Venditore</span><select value={seller} onChange={(event) => setSeller(event.target.value)}><option value="all">Tutti</option>{sellers.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
+      <label><span>Esito</span><select value={outcome} onChange={(event) => setOutcome(event.target.value)}><option value="all">Tutti</option>{["Contratto", "Da risentire", "In contatto", "Perso / rimandato", "Esito libero", "Senza esito"].map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
+      <button onClick={() => { setYear("all"); setMonth("all"); setSeller("all"); setOutcome("all"); }}>Azzera filtri</button>
+    </section>
+    {history.length ? <>
+      <div className="metrics-grid">
+        <Metric label="Preventivi" value={filtered.length} primary={`${bySeller.length} venditori`} secondary="nel periodo filtrato" />
+        <Metric label="Da lavorare" value={followUps} primary={percentage(followUps, filtered.length)} secondary="da risentire o in contatto" />
+        <Metric label="Contratti segnalati" value={converted} primary={percentage(converted, filtered.length)} secondary="conversione registrata" />
+        <Metric label="Richiesta descritta" value={percentage(withVehicle, filtered.length)} primary={`${withVehicle} preventivi`} secondary="utilizzabili per i cluster" />
+      </div>
+      <div className="history-grid">
+        <section className="panel"><header><div><h3>Andamento mensile</h3><p>Numero di preventivi nel tempo</p></div><TrendingUp size={19} /></header><BarList rows={byMonth} maxRows={18} /></section>
+        <section className="panel"><header><div><h3>Preventivi per venditore</h3><p>Carico commerciale nel periodo</p></div><Users size={19} /></header><BarList rows={bySeller} /></section>
+        <section className="panel"><header><div><h3>Stato delle trattative</h3><p>Follow-up, conversioni e motivi di uscita</p></div><Target size={19} /></header><BarList rows={byOutcome} /></section>
+        <section className="panel"><header><div><h3>Cluster richieste auto</h3><p>Tipologie ricavate dalla descrizione veicolo</p></div><BarChart3 size={19} /></header><BarList rows={byVehicle} /></section>
+      </div>
+      <section className="panel table-panel quotes-table"><header><div><h3>Preventivi recenti</h3><p>Ultime trattative nel periodo selezionato</p></div><FileText size={19} /></header><div className="data-table">
+        <div className="data-row data-head"><span>Data</span><span>Cliente</span><span>Venditore</span><span>Veicolo / richiesta</span><span>Stato</span></div>
+        {recent.map((item, index) => <div className="data-row" key={`${item.date}-${item.client}-${index}`}><span>{new Intl.DateTimeFormat("it-IT", { day: "2-digit", month: "2-digit", year: "2-digit" }).format(new Date(item.date))}</span><b>{item.client || "—"}</b><span>{item.seller || "—"}</span><span>{item.vehicle || "Non specificata"}</span><strong>{quoteOutcome(item)}</strong></div>)}
+      </div></section>
+    </> : <section className="placeholder compact"><CircleAlert size={30} /><h2>Preventivi in attesa</h2><p>Aggiorna Apps Script alla versione Preventivi per caricare il tab Make Leads.</p></section>}
   </>;
 }
 
@@ -441,6 +529,6 @@ export default function Home() {
 
   return <main className="app-shell">
     <aside className="sidebar"><div className="brand"><i /><div><strong>Car One CRM</strong><span>Usato · Perugia</span></div></div><nav>{menu.map(({ id, label, icon: Icon }) => <button key={id} className={section === id ? "active" : ""} onClick={() => setSection(id)}><Icon size={18} /><span>{label}</span></button>)}</nav><footer><CheckCircle2 size={15} /><div><strong>{payload.source === "google-live" ? "Google live · 5 min" : "Snapshot verificato"}</strong><span>{updated || "Caricamento…"}</span></div><button aria-label="Aggiorna dati" onClick={() => void refresh()} disabled={loading}><RefreshCw size={15} className={loading ? "spin" : ""} /></button></footer></aside>
-    <section className="content">{section === "dashboard" ? <Dashboard payload={payload} period={period} setPeriod={setPeriod} /> : section === "sources" ? <SourcesView payload={payload} /> : section === "contracts" ? <ContractsView payload={payload} /> : section === "sellers" ? <SellersView payload={payload} /> : <Placeholder section={section} />}</section>
+    <section className="content">{section === "dashboard" ? <Dashboard payload={payload} period={period} setPeriod={setPeriod} /> : section === "sources" ? <SourcesView payload={payload} /> : section === "quotes" ? <QuotesView payload={payload} /> : section === "contracts" ? <ContractsView payload={payload} /> : section === "sellers" ? <SellersView payload={payload} /> : <Placeholder section={section} />}</section>
   </main>;
 }
