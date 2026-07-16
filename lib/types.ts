@@ -53,4 +53,14 @@ export type DashboardPayload = {
     pending: number;
     contracts: number;
   }>;
+  contractHistory: ContractHistoryItem[];
+};
+
+export type ContractHistoryItem = {
+  date: string;
+  year: number;
+  month: number;
+  seller: string;
+  company: "Car One" | "AD Motor";
+  origin: string;
 };

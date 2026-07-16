@@ -96,6 +96,20 @@ button { font: inherit; }
 .good { color: var(--success); font-weight: 700; }
 .notice { margin-top: 14px; display: flex; align-items: flex-start; gap: 9px; color: var(--muted); background: var(--surface-soft); padding: 11px 12px; border-radius: 8px; font-size: 12px; }
 .notice svg { color: var(--warning); flex: 0 0 auto; }
+.filter-bar { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 13px; margin-bottom: 14px; }
+.filter-bar label { display: grid; gap: 5px; min-width: 150px; }
+.filter-bar label span { color: var(--muted); font-size: 11px; font-weight: 700; }
+.filter-bar select { border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--text); padding: 9px 34px 9px 10px; }
+.filter-bar button { border: 0; border-radius: 8px; background: var(--surface-soft); color: var(--muted); padding: 10px 12px; cursor: pointer; }
+.history-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }
+.history-bars { display: grid; gap: 11px; }
+.history-bar { display: grid; grid-template-columns: minmax(84px, .7fr) minmax(120px, 1.8fr) 38px; align-items: center; gap: 10px; }
+.history-bar span { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.history-bar strong { text-align: right; font-size: 13px; }
+.history-bar .track { height: 8px; }
+.history-bar .track i { background: #333842; }
+.history-grid .panel:first-child .history-bar .track i, .history-grid .panel:last-child .history-bar .track i { background: var(--brand); }
+.placeholder.compact { min-height: 320px; margin-top: 14px; }
 .placeholder { min-height: calc(100vh - 68px); border: 1px dashed #cdd1d7; border-radius: 14px; display: grid; place-content: center; justify-items: center; text-align: center; padding: 30px; color: var(--muted); }
 .placeholder h2 { color: var(--text); margin: 12px 0 4px; }
 .placeholder p { margin: 0 0 10px; max-width: 480px; }
@@ -128,6 +142,7 @@ button { font: inherit; }
   .pipeline-row { grid-template-columns: 105px minmax(80px, 1fr); }
   .pipeline-row small { grid-column: 2; }
   .table-panel { overflow-x: auto; }
+  .history-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 430px) {

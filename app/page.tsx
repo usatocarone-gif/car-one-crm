@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BarChart3, CalendarDays, CheckCircle2, CircleAlert, FileCheck2, Gauge, LayoutDashboard, RefreshCw, Target, TrendingUp, Users } from "lucide-react";
-import type { DashboardPayload, DashboardPeriod, PeriodKey } from "@/lib/types";
+import type { ContractHistoryItem, DashboardPayload, DashboardPeriod, PeriodKey } from "@/lib/types";
 import { snapshot } from "@/lib/snapshot";
 
 const menu = [
@@ -130,10 +130,65 @@ function SellersView({ payload }: { payload: DashboardPayload }) {
   </>;
 }
 
+const MONTHS = ["Gen", "Feb", "Mar", "Apr", "Mag", "Giu", "Lug", "Ago", "Set", "Ott", "Nov", "Dic"];
+
+function aggregate(items: ContractHistoryItem[], key: (item: ContractHistoryItem) => string) {
+  const result = new Map<string, number>();
+  items.forEach((item) => result.set(key(item), (result.get(key(item)) ?? 0) + 1));
+  return [...result.entries()].sort((a, b) => b[1] - a[1]);
+}
+
+function BarList({ rows, maxRows = 12 }: { rows: Array<[string, number]>; maxRows?: number }) {
+  const visible = rows.slice(0, maxRows);
+  const max = Math.max(1, ...visible.map((row) => row[1]));
+  return <div className="history-bars">{visible.map(([label, value]) => <div className="history-bar" key={label}><span>{label}</span><div className="track"><i style={{ width: `${value / max * 100}%` }} /></div><strong>{value}</strong></div>)}</div>;
+}
+
+function ContractsView({ payload }: { payload: DashboardPayload }) {
+  const history = payload.contractHistory ?? [];
+  const years = [...new Set(history.map((item) => item.year))].sort((a, b) => b - a);
+  const sellers = [...new Set(history.map((item) => item.seller))].filter(Boolean).sort();
+  const [year, setYear] = useState("all");
+  const [month, setMonth] = useState("all");
+  const [seller, setSeller] = useState("all");
+  const filtered = history.filter((item) => (year === "all" || item.year === Number(year)) && (month === "all" || item.month === Number(month)) && (seller === "all" || item.seller === seller));
+  const byYear = aggregate(filtered, (item) => String(item.year)).sort((a, b) => Number(a[0]) - Number(b[0]));
+  const byMonth = MONTHS.map((label, index) => [label, filtered.filter((item) => item.month === index + 1).length] as [string, number]);
+  const bySeller = aggregate(filtered, (item) => item.seller);
+  const byOrigin = aggregate(filtered, (item) => item.origin);
+  const topSeller = bySeller[0];
+  const topOrigin = byOrigin.find(([name]) => name !== "Non disponibile" && name !== "Non indicata") ?? byOrigin[0];
+  const activeMonths = new Set(filtered.map((item) => `${item.year}-${item.month}`)).size;
+
+  return <>
+    <header className="page-head"><div><p className="eyebrow">Analisi vendite</p><h1>Storico contratti</h1><span>Car One + AD Motor · dal 2024 a oggi</span></div></header>
+    <section className="filter-bar">
+      <label><span>Anno</span><select value={year} onChange={(event) => setYear(event.target.value)}><option value="all">Tutti</option>{years.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
+      <label><span>Mese</span><select value={month} onChange={(event) => setMonth(event.target.value)}><option value="all">Tutti</option>{MONTHS.map((item, index) => <option value={index + 1} key={item}>{item}</option>)}</select></label>
+      <label><span>Venditore</span><select value={seller} onChange={(event) => setSeller(event.target.value)}><option value="all">Tutti</option>{sellers.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
+      <button onClick={() => { setYear("all"); setMonth("all"); setSeller("all"); }}>Azzera filtri</button>
+    </section>
+    {history.length ? <>
+      <div className="metrics-grid">
+        <Metric label="Contratti" value={filtered.length} primary={`${filtered.filter((item) => item.company === "Car One").length} Car One`} secondary={`${filtered.filter((item) => item.company === "AD Motor").length} AD Motor`} />
+        <Metric label="Media mensile" value={activeMonths ? formatNumber(filtered.length / activeMonths) : "—"} primary={`${activeMonths} mesi attivi`} secondary="nel periodo filtrato" />
+        <Metric label="Top venditore" value={topSeller?.[0] ?? "—"} primary={topSeller ? `${topSeller[1]} contratti` : "Nessun dato"} secondary="nel periodo filtrato" />
+        <Metric label="Prima origine" value={topOrigin?.[0] ?? "—"} primary={topOrigin ? `${topOrigin[1]} contratti` : "Nessun dato"} secondary="origine normalizzata" />
+      </div>
+      <div className="history-grid">
+        <section className="panel"><header><div><h3>Contratti per anno</h3><p>Andamento storico Car One + AD Motor</p></div><TrendingUp size={19} /></header><BarList rows={byYear} /></section>
+        <section className="panel"><header><div><h3>Andamento mensile</h3><p>Stagionalità nel periodo selezionato</p></div><BarChart3 size={19} /></header><BarList rows={byMonth} /></section>
+        <section className="panel"><header><div><h3>Performance venditori</h3><p>Volumi contratti filtrabili</p></div><FileCheck2 size={19} /></header><BarList rows={bySeller} /></section>
+        <section className="panel"><header><div><h3>Provenienza contratti</h3><p>Valore letto dalla colonna ORIGINE</p></div><Gauge size={19} /></header><BarList rows={byOrigin} /></section>
+      </div>
+      <div className="notice"><CircleAlert size={17} /><span>Per CAR 2024 la provenienza non è disponibile: la colonna presente indica nuovo/usato/select e non viene utilizzata come origine.</span></div>
+    </> : <section className="placeholder compact"><CircleAlert size={30} /><h2>Storico in attesa</h2><p>Aggiorna Apps Script alla versione storico per caricare i contratti dal 2024.</p></section>}
+  </>;
+}
+
 function Placeholder({ section }: { section: string }) {
   const copy: Record<string, [string, string]> = {
     agenda: ["Agenda commerciale", "Vista giorno e settimana con presentati, no-show e appuntamenti da aggiornare."],
-    contracts: ["Archivio contratti", "Vendite Car One e AD Motor filtrabili per venditore, origine, auto e periodo."],
   };
   const [title, text] = copy[section];
   return <section className="placeholder"><CircleAlert size={30} /><h2>{title}</h2><p>{text}</p><span>Modulo previsto nella fase successiva dell’MVP.</span></section>;
@@ -168,6 +223,6 @@ export default function Home() {
 
   return <main className="app-shell">
     <aside className="sidebar"><div className="brand"><i /><div><strong>Car One CRM</strong><span>Usato · Perugia</span></div></div><nav>{menu.map(({ id, label, icon: Icon }) => <button key={id} className={section === id ? "active" : ""} onClick={() => setSection(id)}><Icon size={18} /><span>{label}</span></button>)}</nav><footer><CheckCircle2 size={15} /><div><strong>{payload.source === "google-live" ? "Google live · 5 min" : "Snapshot verificato"}</strong><span>{updated || "Caricamento…"}</span></div><button aria-label="Aggiorna dati" onClick={() => void refresh()} disabled={loading}><RefreshCw size={15} className={loading ? "spin" : ""} /></button></footer></aside>
-    <section className="content">{section === "dashboard" ? <Dashboard payload={payload} period={period} setPeriod={setPeriod} /> : section === "sources" ? <SourcesView payload={payload} /> : section === "sellers" ? <SellersView payload={payload} /> : <Placeholder section={section} />}</section>
+    <section className="content">{section === "dashboard" ? <Dashboard payload={payload} period={period} setPeriod={setPeriod} /> : section === "sources" ? <SourcesView payload={payload} /> : section === "contracts" ? <ContractsView payload={payload} /> : section === "sellers" ? <SellersView payload={payload} /> : <Placeholder section={section} />}</section>
   </main>;
 }
