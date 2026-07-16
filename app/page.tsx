@@ -181,6 +181,8 @@ function CommercialTrend({ payload, period }: { payload: DashboardPayload; perio
   const maximum = Math.max(1, ...values);
   const ceiling = Math.max(5, Math.ceil(maximum / 5) * 5);
   const x = (index: number) => padding.left + (index / Math.max(1, trend.points.length - 1)) * (width - padding.left - padding.right);
+  const hitLeft = (index: number) => index === 0 ? padding.left : (x(index - 1) + x(index)) / 2;
+  const hitRight = (index: number) => index === trend.points.length - 1 ? width - padding.right : (x(index) + x(index + 1)) / 2;
   const y = (value: number) => padding.top + (1 - value / ceiling) * (height - padding.top - padding.bottom);
   const line = (selector: (point: TrendPoint) => number | null) => trend.points
     .map((point, index) => ({ value: selector(point), index }))
@@ -188,15 +190,15 @@ function CommercialTrend({ payload, period }: { payload: DashboardPayload; perio
     .map((item) => `${x(item.index)},${y(item.value)}`)
     .join(" ");
   const delta = trend.previousAtCutoff ? ((trend.actualAtCutoff / trend.previousAtCutoff) - 1) * 100 : null;
-  const active = hovered === null ? trend.currentIndex : hovered;
-  const activePoint = trend.points[active];
+  const active = hovered;
+  const activePoint = active === null ? null : trend.points[active];
   const labelEvery = trend.period === "week" ? 1 : Math.max(1, Math.floor(trend.points.length / 5));
 
   return <section className="panel commercial-trend">
     <header><div><h3>Andamento commerciale e forecast</h3><p>{trend.period === "week" ? "Settimana corrente vs precedente" : "Mese corrente vs precedente"}</p></div><div className="trend-summary"><span><b>{trend.actualAtCutoff}</b> contratti</span><span><b>{trend.quotesAtCutoff}</b> preventivi</span><span><b>{percentage(trend.actualAtCutoff, trend.quotesAtCutoff)}</b> conversione</span><span className={delta !== null && delta >= 0 ? "good" : "trend-negative"}>{delta === null ? "—" : `${delta >= 0 ? "+" : ""}${formatNumber(delta)}%`} contratti vs precedente</span><span><b>{trend.forecastEnd}</b> forecast</span></div></header>
     <div className="chart-switcher"><button className={mode === "overview" ? "active" : ""} onClick={() => setMode("overview")}>Panoramica</button><button className={mode === "contracts" ? "active" : ""} onClick={() => setMode("contracts")}>Contratti</button><button className={mode === "quotes" ? "active" : ""} onClick={() => setMode("quotes")}>Preventivi</button><button className={mode === "conversion" ? "active" : ""} onClick={() => setMode("conversion")}>Conversione</button></div>
     {(payload.contractHistory ?? []).length ? <div className="trend-chart-wrap">
-      <svg className="trend-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Andamento cumulato contratti, ${trend.actualAtCutoff} attuali e forecast ${trend.forecastEnd}`}>
+      <svg className="trend-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Andamento cumulato contratti, ${trend.actualAtCutoff} attuali e forecast ${trend.forecastEnd}`} onMouseLeave={() => setHovered(null)}>
         {[0, .25, .5, .75, 1].map((ratio) => {
           const value = ceiling * ratio;
           return <g key={ratio}><line x1={padding.left} x2={width - padding.right} y1={y(value)} y2={y(value)} /><text x={padding.left - 8} y={y(value) + 4}>{Math.round(value)}</text></g>;
@@ -211,11 +213,11 @@ function CommercialTrend({ payload, period }: { payload: DashboardPayload; perio
         {mode === "conversion" ? <polyline className="trend-line conversion" points={line((point) => point.conversion)} /> : null}
         {trend.points.map((point, index) => <g key={index}>
           {(index % labelEvery === 0 || index === trend.points.length - 1) ? <text className="trend-x-label" x={x(index)} y={height - 9}>{point.label}</text> : null}
-          <circle className="trend-hit" cx={x(index)} cy={y(mode === "quotes" ? point.actualQuotes ?? 0 : mode === "conversion" ? point.conversion ?? 0 : point.actualContracts ?? point.forecast ?? 0)} r="10" tabIndex={0} aria-label={`${point.label}: ${point.actualContracts ?? 0} contratti, ${point.actualQuotes ?? 0} preventivi`} onMouseEnter={() => setHovered(index)} onMouseLeave={() => setHovered(null)} onFocus={() => setHovered(index)} onBlur={() => setHovered(null)} />
+          <rect className="trend-hit" x={hitLeft(index)} y={padding.top} width={Math.max(1, hitRight(index) - hitLeft(index))} height={height - padding.top - padding.bottom} tabIndex={0} aria-label={`${point.label}: ${point.actualContracts ?? 0} contratti, ${point.actualQuotes ?? 0} preventivi`} onMouseEnter={() => setHovered(index)} onFocus={() => setHovered(index)} onBlur={() => setHovered(null)} />
         </g>)}
-        {activePoint ? <g className="trend-marker"><line x1={x(active)} x2={x(active)} y1={padding.top} y2={height - padding.bottom} /><circle cx={x(active)} cy={y(mode === "quotes" ? activePoint.actualQuotes ?? 0 : mode === "conversion" ? activePoint.conversion ?? 0 : activePoint.actualContracts ?? activePoint.forecast ?? 0)} r="5" /></g> : null}
+        {activePoint ? <g className="trend-marker"><line x1={x(active ?? 0)} x2={x(active ?? 0)} y1={padding.top} y2={height - padding.bottom} /><circle cx={x(active ?? 0)} cy={y(mode === "quotes" ? activePoint.actualQuotes ?? 0 : mode === "conversion" ? activePoint.conversion ?? 0 : activePoint.actualContracts ?? activePoint.forecast ?? 0)} r="5" /></g> : null}
       </svg>
-      {activePoint ? <div className="trend-tooltip" style={{ left: `${Math.min(92, Math.max(8, (x(active) / width) * 100))}%` }}><b>{activePoint.label}</b><span>Contratti {activePoint.actualContracts ?? "—"}</span><span>Preventivi {activePoint.actualQuotes ?? "—"}</span><span>Conversione {activePoint.conversion === null ? "—" : `${formatNumber(activePoint.conversion)}%`}</span><span>Contratti precedenti {formatNumber(activePoint.previousContracts)}</span><span>Preventivi precedenti {formatNumber(activePoint.previousQuotes)}</span><span>Obiettivo {activePoint.target === null ? "—" : formatNumber(activePoint.target)}</span><span>Forecast {activePoint.forecast === null ? "—" : formatNumber(activePoint.forecast)}</span></div> : null}
+      {activePoint ? <div className="trend-tooltip" style={{ left: `${Math.min(92, Math.max(8, (x(active ?? 0) / width) * 100))}%` }}><b>{activePoint.label}</b><span>Contratti {activePoint.actualContracts ?? "—"}</span><span>Preventivi {activePoint.actualQuotes ?? "—"}</span><span>Conversione {activePoint.conversion === null ? "—" : `${formatNumber(activePoint.conversion)}%`}</span><span>Contratti precedenti {formatNumber(activePoint.previousContracts)}</span><span>Preventivi precedenti {formatNumber(activePoint.previousQuotes)}</span><span>Obiettivo {activePoint.target === null ? "—" : formatNumber(activePoint.target)}</span><span>Forecast {activePoint.forecast === null ? "—" : formatNumber(activePoint.forecast)}</span></div> : null}
     </div> : <div className="empty-compact">Il grafico sarà disponibile quando lo storico contratti live è caricato.</div>}
     <div className="trend-legend"><span><i className="actual" />Contratti</span><span><i className="quotes" />Preventivi</span><span><i className="forecast" />Forecast contratti</span><span><i className="target" />Ritmo obiettivo</span><span><i className="previous" />Periodo precedente</span></div>
   </section>;
@@ -229,17 +231,19 @@ function WeeklyFlowChart({ payload }: { payload: DashboardPayload }) {
   const padding = { left: 38, right: 18, top: 18, bottom: 38 };
   const ceiling = Math.max(5, Math.ceil(Math.max(1, ...history.flatMap((item) => [item.appointments, item.quotes, item.contracts])) / 5) * 5);
   const x = (index: number) => padding.left + (index / Math.max(1, history.length - 1)) * (width - padding.left - padding.right);
+  const hitLeft = (index: number) => index === 0 ? padding.left : (x(index - 1) + x(index)) / 2;
+  const hitRight = (index: number) => index === history.length - 1 ? width - padding.right : (x(index) + x(index + 1)) / 2;
   const y = (value: number) => padding.top + (1 - value / ceiling) * (height - padding.top - padding.bottom);
   const line = (selector: (item: typeof history[number]) => number) => history.map((item, index) => `${x(index)},${y(selector(item))}`).join(" ");
-  const active = hovered ?? Math.max(0, history.length - 1);
-  const activePoint = history[active];
+  const active = hovered;
+  const activePoint = active === null ? null : history[active];
   return <section className="panel commercial-trend weekly-flow"><header><div><h3>Funnel settimana per settimana</h3><p>Appuntamenti, preventivi e contratti nelle ultime {history.length || 12} settimane</p></div>{activePoint ? <div className="trend-summary"><span><b>{activePoint.appointments}</b> app.</span><span><b>{activePoint.quotes}</b> preventivi</span><span><b>{activePoint.contracts}</b> contratti</span></div> : null}</header>
-    {history.length >= 10 ? <div className="trend-chart-wrap"><svg className="trend-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Andamento settimanale di appuntamenti, preventivi e contratti">
+    {history.length >= 10 ? <div className="trend-chart-wrap"><svg className="trend-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Andamento settimanale di appuntamenti, preventivi e contratti" onMouseLeave={() => setHovered(null)}>
       {[0, .25, .5, .75, 1].map((ratio) => { const value = ceiling * ratio; return <g key={ratio}><line x1={padding.left} x2={width - padding.right} y1={y(value)} y2={y(value)} /><text x={padding.left - 8} y={y(value) + 4}>{Math.round(value)}</text></g>; })}
       <polyline className="trend-line appointments" points={line((item) => item.appointments)} /><polyline className="trend-line quotes" points={line((item) => item.quotes)} /><polyline className="trend-line actual" points={line((item) => item.contracts)} />
-      {history.map((item, index) => <g key={item.weekStart}><text className="trend-x-label" x={x(index)} y={height - 10}>{item.label}</text><circle className="trend-hit" cx={x(index)} cy={y(item.quotes)} r="12" tabIndex={0} onMouseEnter={() => setHovered(index)} onMouseLeave={() => setHovered(null)} onFocus={() => setHovered(index)} onBlur={() => setHovered(null)} /></g>)}
-      {activePoint ? <g className="trend-marker"><line x1={x(active)} x2={x(active)} y1={padding.top} y2={height - padding.bottom} /><circle cx={x(active)} cy={y(activePoint.quotes)} r="5" /></g> : null}
-    </svg>{activePoint ? <div className="trend-tooltip" style={{ left: `${Math.min(92, Math.max(8, (x(active) / width) * 100))}%` }}><b>{activePoint.label}</b><span>Appuntamenti {activePoint.appointments}</span><span>Preventivi {activePoint.quotes}</span><span>Contratti {activePoint.contracts}</span><span>App. → preventivo {percentage(activePoint.quotes, activePoint.appointments)}</span><span>Preventivo → contratto {percentage(activePoint.contracts, activePoint.quotes)}</span></div> : null}</div> : <div className="empty-compact">Il grafico si attiverà dopo l’aggiornamento Apps Script con almeno 10 settimane.</div>}
+      {history.map((item, index) => <g key={item.weekStart}><text className="trend-x-label" x={x(index)} y={height - 10}>{item.label}</text><rect className="trend-hit" x={hitLeft(index)} y={padding.top} width={Math.max(1, hitRight(index) - hitLeft(index))} height={height - padding.top - padding.bottom} tabIndex={0} aria-label={`${item.label}: ${item.appointments} appuntamenti, ${item.quotes} preventivi, ${item.contracts} contratti`} onMouseEnter={() => setHovered(index)} onFocus={() => setHovered(index)} onBlur={() => setHovered(null)} /></g>)}
+      {activePoint ? <g className="trend-marker"><line x1={x(active ?? 0)} x2={x(active ?? 0)} y1={padding.top} y2={height - padding.bottom} /><circle cx={x(active ?? 0)} cy={y(activePoint.quotes)} r="5" /></g> : null}
+    </svg>{activePoint ? <div className="trend-tooltip" style={{ left: `${Math.min(92, Math.max(8, (x(active ?? 0) / width) * 100))}%` }}><b>{activePoint.label}</b><span>Appuntamenti {activePoint.appointments}</span><span>Preventivi {activePoint.quotes}</span><span>Contratti {activePoint.contracts}</span><span>App. → preventivo {percentage(activePoint.quotes, activePoint.appointments)}</span><span>Preventivo → contratto {percentage(activePoint.contracts, activePoint.quotes)}</span></div> : null}</div> : <div className="empty-compact">Il grafico si attiverà dopo l’aggiornamento Apps Script con almeno 10 settimane.</div>}
     <div className="trend-legend"><span><i className="appointments" />Appuntamenti</span><span><i className="quotes" />Preventivi</span><span><i className="actual" />Contratti</span></div>
   </section>;
 }
