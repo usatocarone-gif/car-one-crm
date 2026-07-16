@@ -23,6 +23,8 @@ export type DashboardPeriod = {
   presented: number;
   noShows: number;
   pendingAppointments: number;
+  upcomingAppointments?: number;
+  overdueAppointments?: number;
   contracts: number;
   carOneContracts: number;
   adMotorContracts: number;
@@ -39,6 +41,7 @@ export type DashboardPayload = {
   lastUpdated: string;
   periods: Record<PeriodKey, DashboardPeriod>;
   todayAgenda: AppointmentItem[];
+  upcomingAgenda?: Array<AppointmentItem & { date: string }>;
   leadSources: Array<{
     name: string;
     leads: number;

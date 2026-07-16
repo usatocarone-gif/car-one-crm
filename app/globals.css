@@ -76,6 +76,10 @@ button { font: inherit; }
 .agenda-item em { font-style: normal; font-size: 11px; padding: 5px 8px; border-radius: 99px; background: var(--surface-soft); color: var(--muted); }
 .agenda-item em.presented { color: var(--success); background: #eaf8f3; }
 .agenda-item em.no-show { color: var(--brand); background: var(--brand-soft); }
+.agenda-item em.opportunity { color: #285f9e; background: #edf5ff; }
+.mini-tabs { display: flex; gap: 3px; padding: 3px; border-radius: 8px; background: var(--surface-soft); }
+.mini-tabs button { border: 0; background: transparent; color: var(--muted); padding: 6px 9px; border-radius: 6px; cursor: pointer; font-size: 11px; }
+.mini-tabs button.active { background: var(--text); color: #fff; }
 .seller-row { display: grid; grid-template-columns: 1fr auto; gap: 7px; padding: 8px 0; }
 .seller-row > div:first-child { display: grid; gap: 3px; }
 .seller-row b { font-size: 13px; }
@@ -117,6 +121,34 @@ button { font: inherit; }
 .comparison-strip small { color: var(--muted); grid-column: 1 / -1; }
 .comparison-strip .positive { color: var(--success); }
 .comparison-strip .negative { color: var(--brand); }
+.commercial-trend { margin-top: 14px; overflow: hidden; }
+.commercial-trend > header { align-items: center; }
+.trend-summary { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
+.trend-summary span { border-radius: 99px; background: var(--surface-soft); color: var(--muted); padding: 6px 9px; font-size: 11px; }
+.trend-summary b { color: var(--text); }
+.trend-summary .trend-negative { color: var(--brand); }
+.trend-chart-wrap { position: relative; min-height: 250px; }
+.trend-chart { width: 100%; height: auto; min-height: 230px; display: block; overflow: visible; }
+.trend-chart line { stroke: var(--line); stroke-width: 1; }
+.trend-chart text { fill: var(--muted); font-size: 10px; text-anchor: end; }
+.trend-chart .trend-x-label { text-anchor: middle; }
+.trend-line { fill: none; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.trend-line.actual { stroke: var(--brand); stroke-width: 3; }
+.trend-line.forecast { stroke: var(--brand); stroke-width: 2; stroke-dasharray: 6 5; opacity: .65; }
+.trend-line.target { stroke: var(--success); stroke-width: 1.5; stroke-dasharray: 3 4; }
+.trend-line.previous { stroke: #8a909a; stroke-width: 2; }
+.trend-hit { fill: transparent; stroke: transparent; cursor: crosshair; }
+.trend-hit:focus { stroke: var(--brand); outline: none; }
+.trend-marker line { stroke: #a9aeb6; stroke-dasharray: 3 4; }
+.trend-marker circle { fill: var(--surface); stroke: var(--brand); stroke-width: 3; }
+.trend-tooltip { position: absolute; top: 6px; transform: translateX(-50%); z-index: 2; display: grid; gap: 2px; min-width: 118px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow); font-size: 11px; pointer-events: none; }
+.trend-tooltip span { color: var(--muted); }
+.trend-legend { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; color: var(--muted); font-size: 11px; }
+.trend-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.trend-legend i { width: 20px; height: 3px; border-radius: 99px; background: #8a909a; }
+.trend-legend i.actual { background: var(--brand); }
+.trend-legend i.forecast { background: repeating-linear-gradient(90deg, var(--brand) 0 5px, transparent 5px 8px); }
+.trend-legend i.target { background: repeating-linear-gradient(90deg, var(--success) 0 3px, transparent 3px 6px); }
 .source-history-grid { align-items: start; }
 .cluster-panel { overflow-x: auto; }
 .cluster-matrix { display: grid; min-width: 720px; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
@@ -159,6 +191,8 @@ button { font: inherit; }
   .table-panel { overflow-x: auto; }
   .history-grid { grid-template-columns: 1fr; }
   .comparison-strip { grid-template-columns: 1fr; }
+  .commercial-trend > header { align-items: flex-start; }
+  .trend-summary { justify-content: flex-start; }
 }
 
 @media (max-width: 430px) {

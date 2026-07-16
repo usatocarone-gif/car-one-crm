@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BarChart3, CalendarDays, CheckCircle2, CircleAlert, FileCheck2, Gauge, LayoutDashboard, RefreshCw, Target, TrendingUp, Users } from "lucide-react";
-import type { ContractHistoryItem, DashboardPayload, DashboardPeriod, LeadHistoryItem, PeriodKey } from "@/lib/types";
+import type { AppointmentItem, ContractHistoryItem, DashboardPayload, DashboardPeriod, LeadHistoryItem, PeriodKey } from "@/lib/types";
 import { snapshot } from "@/lib/snapshot";
 
 const menu = [
@@ -61,20 +61,163 @@ function Pipeline({ data }: { data: DashboardPeriod }) {
   </section>;
 }
 
+type TrendPoint = {
+  label: string;
+  actual: number | null;
+  previous: number;
+  target: number | null;
+  forecast: number | null;
+};
+
+function localContractDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function mondayOf(date: Date) {
+  const result = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = result.getDay() || 7;
+  result.setDate(result.getDate() - day + 1);
+  return result;
+}
+
+function addDays(date: Date, amount: number) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + amount);
+}
+
+function sameCalendarDay(a: Date, b: Date) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function sellingDaysThrough(start: Date, endInclusive: Date) {
+  let count = 0;
+  for (let cursor = new Date(start); cursor <= endInclusive; cursor = addDays(cursor, 1)) {
+    if (cursor.getDay() !== 0) count += 1;
+  }
+  return count;
+}
+
+function buildCommercialTrend(payload: DashboardPayload, selectedPeriod: PeriodKey) {
+  const period: "week" | "month" = selectedPeriod === "week" ? "week" : "month";
+  const now = new Date();
+  const currentStart = period === "week" ? mondayOf(now) : new Date(now.getFullYear(), now.getMonth(), 1);
+  const currentEnd = period === "week" ? addDays(currentStart, 7) : new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const previousStart = period === "week" ? addDays(currentStart, -7) : new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const previousEnd = currentStart;
+  const dates: Date[] = [];
+  for (let cursor = new Date(currentStart); cursor < currentEnd; cursor = addDays(cursor, 1)) dates.push(cursor);
+  const historyDates = (payload.contractHistory ?? []).map((item) => localContractDate(item.date));
+  const currentDaily = dates.map((date) => historyDates.filter((item) => sameCalendarDay(item, date)).length);
+  const previousLength = Math.round((previousEnd.getTime() - previousStart.getTime()) / 86400000);
+  const previousDaily = dates.map((_, index) => {
+    if (index >= previousLength) return 0;
+    const date = addDays(previousStart, index);
+    return historyDates.filter((item) => sameCalendarDay(item, date)).length;
+  });
+  const cumulative = (values: number[]) => values.map((_, index) => values.slice(0, index + 1).reduce((sum, value) => sum + value, 0));
+  const currentCumulative = cumulative(currentDaily);
+  const previousCumulative = cumulative(previousDaily);
+  const currentIndex = Math.max(0, Math.min(dates.length - 1, dates.findIndex((date) => sameCalendarDay(date, now))));
+  const periodData = payload.periods[period];
+  const target = periodData.target;
+  const forecastEnd = periodData.forecast ?? currentCumulative[currentIndex] ?? 0;
+  const totalSellingDays = sellingDaysThrough(currentStart, addDays(currentEnd, -1));
+  const elapsedSellingDays = sellingDaysThrough(currentStart, dates[currentIndex]);
+  const remainingSellingDays = Math.max(1, totalSellingDays - elapsedSellingDays);
+  const actualAtCutoff = currentCumulative[currentIndex] ?? 0;
+  const points: TrendPoint[] = dates.map((date, index) => {
+    const sellingToDate = sellingDaysThrough(currentStart, date);
+    const futureSellingDays = Math.max(0, sellingToDate - elapsedSellingDays);
+    const projected = index < currentIndex ? null : index === currentIndex
+      ? actualAtCutoff
+      : actualAtCutoff + ((forecastEnd - actualAtCutoff) * futureSellingDays) / remainingSellingDays;
+    return {
+      label: period === "week"
+        ? new Intl.DateTimeFormat("it-IT", { weekday: "short" }).format(date)
+        : String(date.getDate()),
+      actual: index <= currentIndex ? currentCumulative[index] : null,
+      previous: previousCumulative[index] ?? previousCumulative[previousCumulative.length - 1] ?? 0,
+      target: target ? (target * sellingToDate) / totalSellingDays : null,
+      forecast: projected,
+    };
+  });
+  const previousAtCutoff = previousCumulative[currentIndex] ?? previousCumulative[previousCumulative.length - 1] ?? 0;
+  return { period, points, actualAtCutoff, previousAtCutoff, forecastEnd, target };
+}
+
+function CommercialTrend({ payload, period }: { payload: DashboardPayload; period: PeriodKey }) {
+  const trend = useMemo(() => buildCommercialTrend(payload, period), [payload, period]);
+  const [hovered, setHovered] = useState<number | null>(null);
+  const width = 720;
+  const height = 250;
+  const padding = { left: 38, right: 18, top: 18, bottom: 34 };
+  const values = trend.points.flatMap((point) => [point.actual, point.previous, point.target, point.forecast]).filter((value): value is number => value !== null);
+  const maximum = Math.max(1, ...values);
+  const ceiling = Math.max(5, Math.ceil(maximum / 5) * 5);
+  const x = (index: number) => padding.left + (index / Math.max(1, trend.points.length - 1)) * (width - padding.left - padding.right);
+  const y = (value: number) => padding.top + (1 - value / ceiling) * (height - padding.top - padding.bottom);
+  const line = (selector: (point: TrendPoint) => number | null) => trend.points
+    .map((point, index) => ({ value: selector(point), index }))
+    .filter((item): item is { value: number; index: number } => item.value !== null)
+    .map((item) => `${x(item.index)},${y(item.value)}`)
+    .join(" ");
+  const delta = trend.previousAtCutoff ? ((trend.actualAtCutoff / trend.previousAtCutoff) - 1) * 100 : null;
+  const active = hovered === null ? trend.points.length - 1 : hovered;
+  const activePoint = trend.points[active];
+  const labelEvery = trend.period === "week" ? 1 : Math.max(1, Math.floor(trend.points.length / 5));
+
+  return <section className="panel commercial-trend">
+    <header><div><h3>Andamento commerciale e forecast</h3><p>{trend.period === "week" ? "Settimana corrente vs precedente" : "Mese corrente vs precedente"}</p></div><div className="trend-summary"><span><b>{trend.actualAtCutoff}</b> contratti</span><span className={delta !== null && delta >= 0 ? "good" : "trend-negative"}>{delta === null ? "—" : `${delta >= 0 ? "+" : ""}${formatNumber(delta)}%`} vs precedente</span><span><b>{trend.forecastEnd}</b> forecast</span></div></header>
+    {(payload.contractHistory ?? []).length ? <div className="trend-chart-wrap">
+      <svg className="trend-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Andamento cumulato contratti, ${trend.actualAtCutoff} attuali e forecast ${trend.forecastEnd}`}>
+        {[0, .25, .5, .75, 1].map((ratio) => {
+          const value = ceiling * ratio;
+          return <g key={ratio}><line x1={padding.left} x2={width - padding.right} y1={y(value)} y2={y(value)} /><text x={padding.left - 8} y={y(value) + 4}>{Math.round(value)}</text></g>;
+        })}
+        <polyline className="trend-line previous" points={line((point) => point.previous)} />
+        {trend.target ? <polyline className="trend-line target" points={line((point) => point.target)} /> : null}
+        <polyline className="trend-line forecast" points={line((point) => point.forecast)} />
+        <polyline className="trend-line actual" points={line((point) => point.actual)} />
+        {trend.points.map((point, index) => <g key={index}>
+          {(index % labelEvery === 0 || index === trend.points.length - 1) ? <text className="trend-x-label" x={x(index)} y={height - 9}>{point.label}</text> : null}
+          <circle className="trend-hit" cx={x(index)} cy={y(point.actual ?? point.forecast ?? 0)} r="10" tabIndex={0} aria-label={`${point.label}: ${point.actual ?? point.forecast ?? 0} contratti`} onMouseEnter={() => setHovered(index)} onMouseLeave={() => setHovered(null)} onFocus={() => setHovered(index)} onBlur={() => setHovered(null)} />
+        </g>)}
+        {activePoint ? <g className="trend-marker"><line x1={x(active)} x2={x(active)} y1={padding.top} y2={height - padding.bottom} /><circle cx={x(active)} cy={y(activePoint.actual ?? activePoint.forecast ?? 0)} r="5" /></g> : null}
+      </svg>
+      {activePoint ? <div className="trend-tooltip" style={{ left: `${Math.min(92, Math.max(8, (x(active) / width) * 100))}%` }}><b>{activePoint.label}</b><span>Attuale {activePoint.actual ?? "—"}</span><span>Precedente {formatNumber(activePoint.previous)}</span><span>Obiettivo {activePoint.target === null ? "—" : formatNumber(activePoint.target)}</span><span>Forecast {activePoint.forecast === null ? "—" : formatNumber(activePoint.forecast)}</span></div> : null}
+    </div> : <div className="empty-compact">Il grafico sarà disponibile quando lo storico contratti live è caricato.</div>}
+    <div className="trend-legend"><span><i className="actual" />Attuale</span><span><i className="forecast" />Forecast</span><span><i className="target" />Ritmo obiettivo</span><span><i className="previous" />Periodo precedente</span></div>
+  </section>;
+}
+
+function AppointmentsPanel({ payload }: { payload: DashboardPayload }) {
+  const [view, setView] = useState<"today" | "upcoming">("today");
+  const items: Array<AppointmentItem & { date?: string }> = view === "today" ? payload.todayAgenda : (payload.upcomingAgenda ?? []);
+  return <section className="panel appointments-panel">
+    <header><div><h3>{view === "today" ? "Agenda di oggi" : "Prossime opportunità"}</h3><p>{view === "today" ? "Appuntamenti odierni e relativi esiti" : "Appuntamenti futuri nei prossimi 7 giorni"}</p></div><div className="mini-tabs"><button className={view === "today" ? "active" : ""} onClick={() => setView("today")}>Oggi</button><button className={view === "upcoming" ? "active" : ""} onClick={() => setView("upcoming")}>Futuri</button></div></header>
+    <div className="agenda-list">{items.length ? items.map((item) => <div className="agenda-item" key={item.id}>
+      <strong>{item.time}</strong><div><b>{item.seller}</b><span>{item.date ?? "Appuntamento showroom"}</span></div><em className={view === "upcoming" ? "opportunity" : item.status}>{view === "upcoming" ? "Opportunità" : statusLabel(item.status)}</em>
+    </div>) : <div className="empty-compact">{view === "upcoming" ? "Nessun appuntamento futuro caricato." : "Nessun appuntamento in agenda."}</div>}</div>
+  </section>;
+}
+
 function Dashboard({ payload, period, setPeriod }: { payload: DashboardPayload; period: PeriodKey; setPeriod: (period: PeriodKey) => void }) {
   const data = payload.periods[period];
   const resolved = data.presented + data.noShows;
+  const upcomingAppointments = data.upcomingAppointments ?? 0;
+  const overdueAppointments = data.overdueAppointments ?? Math.max(0, data.pendingAppointments - upcomingAppointments);
   return <>
     <header className="page-head"><div><p className="eyebrow">Controllo commerciale</p><h1>Buongiorno, David</h1><span>{data.subtitle}</span></div><div className="period-tabs">{(["today", "week", "month"] as PeriodKey[]).map((key) => <button key={key} className={period === key ? "active" : ""} onClick={() => setPeriod(key)}>{payload.periods[key].label}</button>)}</div></header>
     <div className="metrics-grid">
       <Metric label="Lead" value={data.leads} primary={period === "today" ? "Nuovi oggi" : `${percentage(data.appointments, data.leads)} con appuntamento`} secondary="dal Foglio Google" />
-      <Metric label="Appuntamenti" value={data.appointments} primary={`${data.pendingAppointments} senza esito`} secondary="Google Calendar" />
+      <Metric label="Appuntamenti" value={data.appointments} primary={`${upcomingAppointments} opportunità future`} secondary={`${overdueAppointments} passati da aggiornare`} />
       <Metric label="Presentati" value={data.presented} primary={`${percentage(data.presented, resolved)} show rate`} secondary={`${data.noShows} no-show`} />
       <Metric label="Contratti" value={data.contracts} primary={`${data.carOneContracts} Car One`} secondary={`${data.adMotorContracts} AD Motor`} />
     </div>
     <div className="two-columns"><GoalPanel data={data} /><Pipeline data={data} /></div>
+    <CommercialTrend payload={payload} period={period} />
     <div className="two-columns lower">
-      <section className="panel"><header><div><h3>Agenda di oggi</h3><p>Eventi APP dal calendario usato</p></div><CalendarDays size={19} /></header><div className="agenda-list">{payload.todayAgenda.length ? payload.todayAgenda.map((item) => <div className="agenda-item" key={item.id}><strong>{item.time}</strong><div><b>{item.seller}</b><span>Appuntamento showroom</span></div><em className={item.status}>{statusLabel(item.status)}</em></div>) : <div className="empty-compact">Nessun appuntamento in agenda.</div>}</div></section>
+      <AppointmentsPanel payload={payload} />
       <section className="panel"><header><div><h3>Performance venditori</h3><p>Contratti Car One + AD Motor</p></div><BarChart3 size={19} /></header><div className="seller-list">{data.sellers.length ? data.sellers.map((seller) => <div className="seller-row" key={seller.name}><div><b>{seller.name}</b><span>{seller.carOne} Car One · {seller.adMotor} AD</span></div><strong>{seller.contracts}</strong><div className="track"><i style={{ width: `${Math.max(8, seller.contracts / Math.max(...data.sellers.map((s) => s.contracts)) * 100)}%` }} /></div></div>) : <div className="empty-compact">I risultati venditore sono disponibili nelle viste settimanale e mensile.</div>}</div></section>
     </div>
   </>;

@@ -75,6 +75,7 @@ export const snapshot: DashboardPayload = {
     { id: "2", time: "17:00", seller: "Liguori", status: "presented" },
     { id: "3", time: "18:00", seller: "Caironi", status: "pending" },
   ],
+  upcomingAgenda: [],
   leadSources: [
     { name: "Facebook", leads: 551, appointments: null, contracts: null },
     { name: "Instagram", leads: 199, appointments: null, contracts: null },
