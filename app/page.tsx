@@ -83,13 +83,13 @@ function Dashboard({ payload, period, setPeriod }: { payload: DashboardPayload; 
 function SourcesView({ payload }: { payload: DashboardPayload }) {
   const total = payload.leadSources.reduce((sum, source) => sum + source.leads, 0);
   const leader = Math.max(...payload.leadSources.map((source) => source.leads));
+  const ranked = [...payload.leadSources].sort((a, b) => b.leads - a.leads);
+  const sourceMetric = (index: number) => ranked[index] ? <Metric label={index ? ranked[index].name : "Canale principale"} value={index ? ranked[index].leads : ranked[index].name} primary={percentage(ranked[index].leads, total)} secondary="del volume totale" /> : <Metric label="Canale" value="—" primary="Nessun dato" secondary="nel periodo" />;
   return <>
-    <header className="page-head"><div><p className="eyebrow">Acquisizione</p><h1>Provenienza lead</h1><span>Luglio 2026 · Origine dal foglio Make Leads</span></div><div className="period-tabs"><button className="active">Mese</button></div></header>
+    <header className="page-head"><div><p className="eyebrow">Acquisizione</p><h1>Provenienza lead</h1><span>Mese corrente · Origine dal foglio Make Leads</span></div><div className="period-tabs"><button className="active">Mese</button></div></header>
     <div className="metrics-grid source-metrics">
-      <Metric label="Lead analizzati" value={total} primary="3 canali" secondary="dati aggiornati al 15 luglio" />
-      <Metric label="Canale principale" value="Facebook" primary={percentage(551, total)} secondary="del volume totale" />
-      <Metric label="Instagram" value={199} primary={percentage(199, total)} secondary="lead del mese" />
-      <Metric label="TikTok" value={50} primary={percentage(50, total)} secondary="lead del mese" />
+      <Metric label="Lead analizzati" value={total} primary={`${payload.leadSources.length} canali`} secondary="mese corrente" />
+      {sourceMetric(0)}{sourceMetric(1)}{sourceMetric(2)}
     </div>
     <section className="panel table-panel">
       <header><div><h3>Performance per canale</h3><p>Volumi, peso e conversioni disponibili</p></div><TrendingUp size={19} /></header>
@@ -148,17 +148,32 @@ function ContractsView({ payload }: { payload: DashboardPayload }) {
   const history = payload.contractHistory ?? [];
   const years = [...new Set(history.map((item) => item.year))].sort((a, b) => b - a);
   const sellers = [...new Set(history.map((item) => item.seller))].filter(Boolean).sort();
-  const [year, setYear] = useState("all");
+  const currentDate = new Date();
+  const defaultYear = years.includes(currentDate.getFullYear()) ? String(currentDate.getFullYear()) : "all";
+  const [year, setYear] = useState(defaultYear);
   const [month, setMonth] = useState("all");
   const [seller, setSeller] = useState("all");
   const filtered = history.filter((item) => (year === "all" || item.year === Number(year)) && (month === "all" || item.month === Number(month)) && (seller === "all" || item.seller === seller));
-  const byYear = aggregate(filtered, (item) => String(item.year)).sort((a, b) => Number(a[0]) - Number(b[0]));
+  const annualBase = history.filter((item) => (month === "all" || item.month === Number(month)) && (seller === "all" || item.seller === seller));
+  const byYear = aggregate(annualBase, (item) => String(item.year)).sort((a, b) => Number(a[0]) - Number(b[0]));
   const byMonth = MONTHS.map((label, index) => [label, filtered.filter((item) => item.month === index + 1).length] as [string, number]);
   const bySeller = aggregate(filtered, (item) => item.seller);
   const byOrigin = aggregate(filtered, (item) => item.origin);
   const topSeller = bySeller[0];
   const topOrigin = byOrigin.find(([name]) => name !== "Non disponibile" && name !== "Non indicata") ?? byOrigin[0];
   const activeMonths = new Set(filtered.map((item) => `${item.year}-${item.month}`)).size;
+  const effectiveYear = year === "all" ? (years[0] ?? currentDate.getFullYear()) : Number(year);
+  const sellerBase = history.filter((item) => seller === "all" || item.seller === seller);
+  const yearCutoffMonth = effectiveYear === currentDate.getFullYear() ? currentDate.getMonth() + 1 : 12;
+  const yearCutoffDay = effectiveYear === currentDate.getFullYear() ? currentDate.getDate() : 31;
+  const currentYearCount = sellerBase.filter((item) => item.year === effectiveYear && (item.month < yearCutoffMonth || (item.month === yearCutoffMonth && Number(item.date.slice(8, 10)) <= yearCutoffDay))).length;
+  const previousYearCount = sellerBase.filter((item) => item.year === effectiveYear - 1 && (item.month < yearCutoffMonth || (item.month === yearCutoffMonth && Number(item.date.slice(8, 10)) <= yearCutoffDay))).length;
+  const effectiveMonth = month === "all" ? (effectiveYear === currentDate.getFullYear() ? currentDate.getMonth() + 1 : 12) : Number(month);
+  const previousMonth = effectiveMonth === 1 ? 12 : effectiveMonth - 1;
+  const previousMonthYear = effectiveMonth === 1 ? effectiveYear - 1 : effectiveYear;
+  const currentMonthCount = sellerBase.filter((item) => item.year === effectiveYear && item.month === effectiveMonth).length;
+  const previousMonthCount = sellerBase.filter((item) => item.year === previousMonthYear && item.month === previousMonth).length;
+  const delta = (value: number, comparison: number) => comparison ? `${value >= comparison ? "+" : ""}${formatNumber((value / comparison - 1) * 100)}%` : "—";
 
   return <>
     <header className="page-head"><div><p className="eyebrow">Analisi vendite</p><h1>Storico contratti</h1><span>Car One + AD Motor · dal 2024 a oggi</span></div></header>
@@ -175,13 +190,17 @@ function ContractsView({ payload }: { payload: DashboardPayload }) {
         <Metric label="Top venditore" value={topSeller?.[0] ?? "—"} primary={topSeller ? `${topSeller[1]} contratti` : "Nessun dato"} secondary="nel periodo filtrato" />
         <Metric label="Prima origine" value={topOrigin?.[0] ?? "—"} primary={topOrigin ? `${topOrigin[1]} contratti` : "Nessun dato"} secondary="origine normalizzata" />
       </div>
+      <div className="comparison-strip">
+        <div><span>{effectiveYear} vs {effectiveYear - 1}{effectiveYear === currentDate.getFullYear() ? " · stesso periodo" : ""}</span><strong className={currentYearCount >= previousYearCount ? "positive" : "negative"}>{delta(currentYearCount, previousYearCount)}</strong><small>{currentYearCount} vs {previousYearCount} contratti</small></div>
+        <div><span>{MONTHS[effectiveMonth - 1]} vs {MONTHS[previousMonth - 1]}</span><strong className={currentMonthCount >= previousMonthCount ? "positive" : "negative"}>{delta(currentMonthCount, previousMonthCount)}</strong><small>{currentMonthCount} vs {previousMonthCount} contratti</small></div>
+      </div>
       <div className="history-grid">
         <section className="panel"><header><div><h3>Contratti per anno</h3><p>Andamento storico Car One + AD Motor</p></div><TrendingUp size={19} /></header><BarList rows={byYear} /></section>
         <section className="panel"><header><div><h3>Andamento mensile</h3><p>Stagionalità nel periodo selezionato</p></div><BarChart3 size={19} /></header><BarList rows={byMonth} /></section>
         <section className="panel"><header><div><h3>Performance venditori</h3><p>Volumi contratti filtrabili</p></div><FileCheck2 size={19} /></header><BarList rows={bySeller} /></section>
         <section className="panel"><header><div><h3>Provenienza contratti</h3><p>Valore letto dalla colonna ORIGINE</p></div><Gauge size={19} /></header><BarList rows={byOrigin} /></section>
       </div>
-      <div className="notice"><CircleAlert size={17} /><span>Per CAR 2024 la provenienza non è disponibile: la colonna presente indica nuovo/usato/select e non viene utilizzata come origine.</span></div>
+      <div className="notice"><CircleAlert size={17} /><span>Il mese e la settimana correnti arrivano da PROIEZ. REDDITIVITA&apos; per includere subito i nuovi contratti. Lo storico chiuso arriva dai tab annuali Car One e AD Motor.</span></div>
     </> : <section className="placeholder compact"><CircleAlert size={30} /><h2>Storico in attesa</h2><p>Aggiorna Apps Script alla versione storico per caricare i contratti dal 2024.</p></section>}
   </>;
 }
