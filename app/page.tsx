@@ -1,15 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { BarChart3, CalendarDays, CheckCircle2, CircleAlert, FileCheck2, Gauge, LayoutDashboard, RefreshCw, Target, Users } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { BarChart3, CalendarDays, CheckCircle2, CircleAlert, FileCheck2, Gauge, LayoutDashboard, RefreshCw, Target, TrendingUp, Users } from "lucide-react";
 import type { DashboardPayload, DashboardPeriod, PeriodKey } from "@/lib/types";
+import { snapshot } from "@/lib/snapshot";
 
 const menu = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "lead", label: "Lead", icon: Users },
+  { id: "sources", label: "Provenienza lead", icon: TrendingUp },
   { id: "agenda", label: "Agenda", icon: CalendarDays },
   { id: "contracts", label: "Contratti", icon: FileCheck2 },
-  { id: "sellers", label: "Venditori", icon: BarChart3 },
+  { id: "sellers", label: "Conversione venditori", icon: BarChart3 },
 ];
 
 function formatNumber(value: number) {
@@ -79,12 +80,60 @@ function Dashboard({ payload, period, setPeriod }: { payload: DashboardPayload; 
   </>;
 }
 
+function SourcesView({ payload }: { payload: DashboardPayload }) {
+  const total = payload.leadSources.reduce((sum, source) => sum + source.leads, 0);
+  const leader = Math.max(...payload.leadSources.map((source) => source.leads));
+  return <>
+    <header className="page-head"><div><p className="eyebrow">Acquisizione</p><h1>Provenienza lead</h1><span>Luglio 2026 · Origine dal foglio Make Leads</span></div><div className="period-tabs"><button className="active">Mese</button></div></header>
+    <div className="metrics-grid source-metrics">
+      <Metric label="Lead analizzati" value={total} primary="3 canali" secondary="dati aggiornati al 15 luglio" />
+      <Metric label="Canale principale" value="Facebook" primary={percentage(551, total)} secondary="del volume totale" />
+      <Metric label="Instagram" value={199} primary={percentage(199, total)} secondary="lead del mese" />
+      <Metric label="TikTok" value={50} primary={percentage(50, total)} secondary="lead del mese" />
+    </div>
+    <section className="panel table-panel">
+      <header><div><h3>Performance per canale</h3><p>Volumi, peso e conversioni disponibili</p></div><TrendingUp size={19} /></header>
+      <div className="data-table source-table">
+        <div className="data-row data-head"><span>Canale</span><span>Lead</span><span>Peso</span><span>Lead → App.</span><span>Lead → Contratto</span></div>
+        {payload.leadSources.map((source) => <div className="data-row" key={source.name}>
+          <div className="source-name"><b>{source.name}</b><div className="track"><i style={{ width: `${source.leads / leader * 100}%` }} /></div></div>
+          <strong>{source.leads}</strong><span>{percentage(source.leads, total)}</span>
+          <span className="waiting">Da collegare</span><span className="waiting">Da collegare</span>
+        </div>)}
+      </div>
+      <div className="notice"><CircleAlert size={17} /><span>Le colonne Show, Prev e Contratto del foglio lead sono ancora vuote. Le conversioni compariranno automaticamente quando il funnel sarà collegato.</span></div>
+    </section>
+  </>;
+}
+
+function SellersView({ payload }: { payload: DashboardPayload }) {
+  const totals = payload.sellerConversions.reduce((acc, seller) => ({ appointments: acc.appointments + seller.appointments, presented: acc.presented + seller.presented, noShows: acc.noShows + seller.noShows, contracts: acc.contracts + seller.contracts }), { appointments: 0, presented: 0, noShows: 0, contracts: 0 });
+  const resolved = totals.presented + totals.noShows;
+  return <>
+    <header className="page-head"><div><p className="eyebrow">Performance commerciale</p><h1>Conversione venditori</h1><span>Luglio 2026 · Calendar + Car One + AD Motor</span></div><div className="period-tabs"><button className="active">Mese</button></div></header>
+    <div className="metrics-grid">
+      <Metric label="Appuntamenti" value={totals.appointments} primary={`${payload.sellerConversions.reduce((sum, item) => sum + item.pending, 0)} da aggiornare`} secondary="con venditore riconosciuto" />
+      <Metric label="Presentati" value={totals.presented} primary={`${percentage(totals.presented, resolved)} show rate`} secondary={`${totals.noShows} no-show`} />
+      <Metric label="Contratti" value={totals.contracts} primary={percentage(totals.contracts, totals.appointments)} secondary="appuntamento → contratto" />
+      <Metric label="Top contratti" value="Grandolini" primary="7 contratti" secondary="Car One + AD Motor" />
+    </div>
+    <section className="panel table-panel">
+      <header><div><h3>Funnel per venditore</h3><p>La conversione lead sarà disponibile con le nuove assegnazioni nel foglio</p></div><BarChart3 size={19} /></header>
+      <div className="data-table seller-table">
+        <div className="data-row data-head"><span>Venditore</span><span>App.</span><span>Presentati</span><span>Show rate</span><span>Contratti</span><span>App. → Contr.</span></div>
+        {[...payload.sellerConversions].sort((a, b) => b.contracts - a.contracts).map((seller) => {
+          const sellerResolved = seller.presented + seller.noShows;
+          return <div className="data-row" key={seller.name}><b>{seller.name}</b><strong>{seller.appointments}</strong><span>{seller.presented}</span><span className={sellerResolved && seller.presented / sellerResolved >= .7 ? "good" : ""}>{percentage(seller.presented, sellerResolved)}</span><strong>{seller.contracts}</strong><span>{percentage(seller.contracts, seller.appointments)}</span></div>;
+        })}
+      </div>
+    </section>
+  </>;
+}
+
 function Placeholder({ section }: { section: string }) {
   const copy: Record<string, [string, string]> = {
-    lead: ["Lead Inbox", "Ricerca, assegnazione, stato, ultimo contatto e prossima attività."],
     agenda: ["Agenda commerciale", "Vista giorno e settimana con presentati, no-show e appuntamenti da aggiornare."],
     contracts: ["Archivio contratti", "Vendite Car One e AD Motor filtrabili per venditore, origine, auto e periodo."],
-    sellers: ["Coaching venditori", "Obiettivi, conversioni, attività e opportunità aperte per ogni venditore."],
   };
   const [title, text] = copy[section];
   return <section className="placeholder"><CircleAlert size={30} /><h2>{title}</h2><p>{text}</p><span>Modulo previsto nella fase successiva dell’MVP.</span></section>;
@@ -93,21 +142,32 @@ function Placeholder({ section }: { section: string }) {
 export default function Home() {
   const [section, setSection] = useState("dashboard");
   const [period, setPeriod] = useState<PeriodKey>("today");
-  const [payload, setPayload] = useState<DashboardPayload | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [payload, setPayload] = useState<DashboardPayload>(snapshot);
+  const [loading, setLoading] = useState(false);
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     setLoading(true);
-    const response = await fetch("/api/dashboard", { cache: "no-store" });
-    setPayload(await response.json());
-    setLoading(false);
-  }
+    try {
+      const response = await fetch("/api/dashboard", { cache: "no-store" });
+      if (!response.ok) throw new Error("Aggiornamento non disponibile");
+      setPayload(await response.json() as DashboardPayload);
+    } catch {
+      // Mantiene l'ultimo dato valido se Google o la rete non rispondono.
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  useEffect(() => { void refresh(); }, []);
+  useEffect(() => {
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 5 * 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, [refresh]);
+
   const updated = useMemo(() => payload ? new Intl.DateTimeFormat("it-IT", { dateStyle: "medium", timeStyle: "short" }).format(new Date(payload.lastUpdated)) : "", [payload]);
 
   return <main className="app-shell">
-    <aside className="sidebar"><div className="brand"><i /><div><strong>Car One CRM</strong><span>Usato · Perugia</span></div></div><nav>{menu.map(({ id, label, icon: Icon }) => <button key={id} className={section === id ? "active" : ""} onClick={() => setSection(id)}><Icon size={18} /><span>{label}</span></button>)}</nav><footer><CheckCircle2 size={15} /><div><strong>{payload?.source === "google-live" ? "Google live" : "Snapshot verificato"}</strong><span>{updated || "Caricamento…"}</span></div><button aria-label="Aggiorna dati" onClick={() => void refresh()} disabled={loading}><RefreshCw size={15} className={loading ? "spin" : ""} /></button></footer></aside>
-    <section className="content">{loading && !payload ? <div className="loading"><RefreshCw className="spin" /> Caricamento dashboard…</div> : payload && section === "dashboard" ? <Dashboard payload={payload} period={period} setPeriod={setPeriod} /> : <Placeholder section={section} />}</section>
+    <aside className="sidebar"><div className="brand"><i /><div><strong>Car One CRM</strong><span>Usato · Perugia</span></div></div><nav>{menu.map(({ id, label, icon: Icon }) => <button key={id} className={section === id ? "active" : ""} onClick={() => setSection(id)}><Icon size={18} /><span>{label}</span></button>)}</nav><footer><CheckCircle2 size={15} /><div><strong>{payload.source === "google-live" ? "Google live · 5 min" : "Snapshot verificato"}</strong><span>{updated || "Caricamento…"}</span></div><button aria-label="Aggiorna dati" onClick={() => void refresh()} disabled={loading}><RefreshCw size={15} className={loading ? "spin" : ""} /></button></footer></aside>
+    <section className="content">{section === "dashboard" ? <Dashboard payload={payload} period={period} setPeriod={setPeriod} /> : section === "sources" ? <SourcesView payload={payload} /> : section === "sellers" ? <SellersView payload={payload} /> : <Placeholder section={section} />}</section>
   </main>;
 }

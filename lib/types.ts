@@ -39,4 +39,18 @@ export type DashboardPayload = {
   lastUpdated: string;
   periods: Record<PeriodKey, DashboardPeriod>;
   todayAgenda: AppointmentItem[];
+  leadSources: Array<{
+    name: string;
+    leads: number;
+    appointments: number | null;
+    contracts: number | null;
+  }>;
+  sellerConversions: Array<{
+    name: string;
+    appointments: number;
+    presented: number;
+    noShows: number;
+    pending: number;
+    contracts: number;
+  }>;
 };

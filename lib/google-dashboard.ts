@@ -98,7 +98,7 @@ export async function loadGoogleDashboard(now = new Date()): Promise<DashboardPa
   const weekEnd = endOfWeek(now);
 
   const [leadResponse, carResponse, adResponse, calendarResponse] = await Promise.all([
-    sheets.spreadsheets.values.get({ spreadsheetId: leadsId, range: "Foglio1!A:A" }),
+    sheets.spreadsheets.values.get({ spreadsheetId: leadsId, range: "Foglio1!A:F" }),
     sheets.spreadsheets.values.get({ spreadsheetId: salesId, range: "'CAR 2026'!B:F" }),
     sheets.spreadsheets.values.get({ spreadsheetId: salesId, range: "'AD MOTOR 2026'!B:F" }),
     calendar.events.list({
@@ -112,7 +112,11 @@ export async function loadGoogleDashboard(now = new Date()): Promise<DashboardPa
     }),
   ]);
 
-  const leadDates = (leadResponse.data.values ?? []).map((row) => new Date(String(row[0]))).filter((date) => !Number.isNaN(date.valueOf()));
+  const leadRows = (leadResponse.data.values ?? []).slice(1).map((row) => ({
+    date: new Date(String(row[0])),
+    source: String(row[5] ?? "Non indicata").trim().toLowerCase(),
+  })).filter((row) => !Number.isNaN(row.date.valueOf()));
+  const leadDates = leadRows.map((row) => row.date);
   const parseSales = (rows: unknown[][], company: Sale["company"]) => rows.flatMap<Sale>((row) => {
     const date = parseItalianDate(row[0]);
     if (!date) return [];
@@ -174,6 +178,28 @@ export async function loadGoogleDashboard(now = new Date()): Promise<DashboardPa
   week.label = "Settimana"; week.subtitle = "Settimana commerciale corrente";
   month.label = "Mese & forecast"; month.subtitle = "Andamento mensile e previsione";
 
+  const monthLeadRows = leadRows.filter((row) => row.date >= monthStart && row.date < monthEnd);
+  const sourceLabels: Record<string, string> = { fb: "Facebook", ig: "Instagram", tiktok: "TikTok" };
+  const leadSources = Array.from(new Set(monthLeadRows.map((row) => row.source))).map((source) => ({
+    name: (sourceLabels[source] ?? source) || "Non indicata",
+    leads: monthLeadRows.filter((row) => row.source === source).length,
+    appointments: null,
+    contracts: null,
+  })).sort((a, b) => b.leads - a.leads);
+
+  const monthSales = sales.filter((sale) => sale.date >= monthStart && sale.date < monthEnd);
+  const sellerConversions = SELLERS.map((seller) => {
+    const sellerAppointments = appointments.filter((event) => event.seller === seller);
+    return {
+      name: seller[0] + seller.slice(1).toLowerCase(),
+      appointments: sellerAppointments.length,
+      presented: sellerAppointments.filter((event) => event.status === "presented").length,
+      noShows: sellerAppointments.filter((event) => event.status === "no-show").length,
+      pending: sellerAppointments.filter((event) => event.status === "pending").length,
+      contracts: monthSales.filter((sale) => sale.seller === seller).length,
+    };
+  });
+
   return {
     source: "google-live",
     lastUpdated: now.toISOString(),
@@ -184,5 +210,7 @@ export async function loadGoogleDashboard(now = new Date()): Promise<DashboardPa
       seller: event.seller[0] + event.seller.slice(1).toLowerCase(),
       status: event.status,
     })),
+    leadSources,
+    sellerConversions,
   };
 }

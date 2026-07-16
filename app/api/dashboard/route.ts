@@ -1,19 +1,20 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { googleIsConfigured, loadGoogleDashboard } from "@/lib/google-dashboard";
 import { snapshot } from "@/lib/snapshot";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-export async function GET(_request: NextRequest) {
-  if (!googleIsConfigured()) {
-    return NextResponse.json(snapshot, { headers: { "Cache-Control": "no-store" } });
-  }
-
+export async function GET() {
   try {
-    const dashboard = await loadGoogleDashboard();
-    return NextResponse.json(dashboard, { headers: { "Cache-Control": "s-maxage=900, stale-while-revalidate=300" } });
+    const payload = googleIsConfigured() ? await loadGoogleDashboard() : snapshot;
+    return NextResponse.json(payload, {
+      headers: { "Cache-Control": "no-store, max-age=0" },
+    });
   } catch (error) {
-    console.error("Google dashboard sync failed", error);
-    return NextResponse.json({ ...snapshot, warning: "Sincronizzazione Google non riuscita: visualizzato l’ultimo snapshot." }, { status: 200 });
+    console.error("Google dashboard refresh failed", error);
+    return NextResponse.json(snapshot, {
+      headers: { "Cache-Control": "no-store, max-age=0" },
+    });
   }
 }
