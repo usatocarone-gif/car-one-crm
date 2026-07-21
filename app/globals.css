@@ -192,10 +192,10 @@ button { font: inherit; }
 .channel-monthly .trend-legend { margin-top: 14px; }
 .channel-table .data-table { min-width: 1040px; }
 .channel-table .data-row { grid-template-columns: minmax(125px, 1.1fr) repeat(8, minmax(78px, .7fr)); }
-.direct-channel-table .data-table { min-width: 790px; }
-.direct-channel-table .data-row { grid-template-columns: minmax(160px, 1.3fr) repeat(5, minmax(105px, .8fr)); }
-.channel-seller-table .data-table { min-width: 1320px; }
-.channel-seller-table .data-row { grid-template-columns: minmax(145px, 1.2fr) repeat(10, minmax(88px, .72fr)); }
+.direct-channel-table .data-table { min-width: 570px; }
+.direct-channel-table .data-row { grid-template-columns: minmax(180px, 1.4fr) repeat(3, minmax(120px, .85fr)); }
+.channel-seller-table .data-table { min-width: 1080px; }
+.channel-seller-table .data-row { grid-template-columns: minmax(145px, 1.2fr) repeat(8, minmax(95px, .75fr)); }
 .show-rate-seller-table .data-table { min-width: 1020px; }
 .show-rate-seller-table .data-row { grid-template-columns: minmax(160px, 1.3fr) repeat(7, minmax(105px, .8fr)); }
 .data-total { background: var(--surface-soft); border-top: 2px solid var(--line); }
