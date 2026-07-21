@@ -196,6 +196,8 @@ button { font: inherit; }
 .direct-channel-table .data-row { grid-template-columns: minmax(160px, 1.3fr) repeat(5, minmax(105px, .8fr)); }
 .channel-seller-table .data-table { min-width: 1320px; }
 .channel-seller-table .data-row { grid-template-columns: minmax(145px, 1.2fr) repeat(10, minmax(88px, .72fr)); }
+.show-rate-seller-table .data-table { min-width: 1020px; }
+.show-rate-seller-table .data-row { grid-template-columns: minmax(160px, 1.3fr) repeat(7, minmax(105px, .8fr)); }
 .data-total { background: var(--surface-soft); border-top: 2px solid var(--line); }
 .data-total b, .data-total strong { color: var(--text); }
 .placeholder { min-height: calc(100vh - 68px); border: 1px dashed #cdd1d7; border-radius: 14px; display: grid; place-content: center; justify-items: center; text-align: center; padding: 30px; color: var(--muted); }

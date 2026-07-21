@@ -92,6 +92,19 @@ export type ShowRateHistoryItem = {
   presented: number;
   noShows: number;
   pending: number;
+  sellers: ShowRateSellerItem[];
+};
+
+export type ShowRateSellerItem = {
+  name: string;
+  appointments: number;
+  presented: number;
+  noShows: number;
+  pending: number;
+  leadAppointments: number;
+  leadPresented: number;
+  leadNoShows: number;
+  leadPending: number;
 };
 
 export type ChannelAnalysis = {

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BarChart3, CalendarDays, CheckCircle2, CircleAlert, FileCheck2, FileText, Gauge, GitBranch, LayoutDashboard, RefreshCw, Target, TrendingUp, Users } from "lucide-react";
-import type { AppointmentItem, ChannelCohortItem, ContractHistoryItem, DashboardPayload, DashboardPeriod, LeadHistoryItem, PeriodKey, QuoteHistoryItem } from "@/lib/types";
+import type { AppointmentItem, ChannelCohortItem, ContractHistoryItem, DashboardPayload, DashboardPeriod, LeadHistoryItem, PeriodKey, QuoteHistoryItem, ShowRateHistoryItem } from "@/lib/types";
 import { snapshot } from "@/lib/snapshot";
 
 const menu = [
@@ -399,6 +399,26 @@ function summarizeChannelSellers(leadItems: ChannelCohortItem[], directItems: Ch
   return [...grouped.values()].sort((a, b) => (b.leadContracts + b.directContracts) - (a.leadContracts + a.directContracts) || (b.leadQuotes + b.directQuotes) - (a.leadQuotes + a.directQuotes) || (b.leadAppointments + b.directAppointments) - (a.leadAppointments + a.directAppointments));
 }
 
+type ShowRateSellerSummary = { name: string; leadAppointments: number; leadPresented: number; leadNoShows: number; leadPending: number };
+
+function summarizeShowRateSellers(items: ShowRateHistoryItem[]) {
+  const grouped = new Map<string, ShowRateSellerSummary>();
+  items.forEach((item) => (item.sellers ?? []).forEach((seller) => {
+    const current = grouped.get(seller.name) ?? { name: seller.name, leadAppointments: 0, leadPresented: 0, leadNoShows: 0, leadPending: 0 };
+    current.leadAppointments += seller.leadAppointments ?? 0;
+    current.leadPresented += seller.leadPresented ?? 0;
+    current.leadNoShows += seller.leadNoShows ?? 0;
+    current.leadPending += seller.leadPending ?? 0;
+    grouped.set(seller.name, current);
+  }));
+  return [...grouped.values()].filter((item) => item.leadAppointments > 0).sort((a, b) => showRateNumber(b) - showRateNumber(a) || b.leadAppointments - a.leadAppointments);
+}
+
+function showRateNumber(item: Pick<ShowRateSellerSummary, "leadPresented" | "leadNoShows">) {
+  const resolved = item.leadPresented + item.leadNoShows;
+  return resolved ? item.leadPresented / resolved : 0;
+}
+
 function currentWeekOfMonth(date: Date) {
   const first = new Date(date.getFullYear(), date.getMonth(), 1);
   return Math.min(5, Math.floor((date.getDate() + (first.getDay() + 6) % 7 - 1) / 7) + 1);
@@ -446,7 +466,11 @@ function ChannelsView({ payload }: { payload: DashboardPayload }) {
   const leadTotals = total(leadRows); const directTotals = total(directRows);
   const quotes = leadTotals.quotes + directTotals.quotes; const contracts = leadTotals.contracts + directTotals.contracts;
   const sellerRows = summarizeChannelSellers(filteredLeads, filteredDirect).filter((item) => seller === "all" || item.name === seller);
-  const show = (analysis?.showRateHistory ?? []).filter((item) => (year === "all" || item.year === Number(year)) && (month === "all" || item.month === Number(month)) && (view === "monthly" || week === "all" || item.week === Number(week))).reduce((sum, item) => ({ presented: sum.presented + item.presented, noShows: sum.noShows + item.noShows, pending: sum.pending + item.pending }), { presented: 0, noShows: 0, pending: 0 });
+  const filteredShowRate = (analysis?.showRateHistory ?? []).filter((item) => (year === "all" || item.year === Number(year)) && (month === "all" || item.month === Number(month)) && (view === "monthly" || week === "all" || item.week === Number(week)));
+  const show = filteredShowRate.reduce((sum, item) => ({ presented: sum.presented + item.presented, noShows: sum.noShows + item.noShows, pending: sum.pending + item.pending }), { presented: 0, noShows: 0, pending: 0 });
+  const showSellerRows = summarizeShowRateSellers(filteredShowRate).filter((item) => seller === "all" || item.name === seller);
+  const showSellerTotals = showSellerRows.reduce((sum, item) => ({ leadAppointments: sum.leadAppointments + item.leadAppointments, leadPresented: sum.leadPresented + item.leadPresented, leadNoShows: sum.leadNoShows + item.leadNoShows, leadPending: sum.leadPending + item.leadPending }), { leadAppointments: 0, leadPresented: 0, leadNoShows: 0, leadPending: 0 });
+  const leadContractsTotal = sellerRows.reduce((sum, item) => sum + item.leadContracts, 0);
   const chartFilter = (item: ChannelCohortItem) => (year === "all" || item.year === Number(year)) && (channel === "all" || item.channel === channel) && (view === "monthly" || month === "all" || item.month === Number(month));
   const chartLeads = leadHistory.filter(chartFilter); const chartDirect = directHistory.filter(chartFilter);
   return <><header className="page-head"><div><p className="eyebrow">Acquisizione e conversione</p><h1>Canali</h1><span>Totali, dettaglio venditori e coorti mensili o settimanali</span></div><div className="period-tabs"><button className={view === "monthly" ? "active" : ""} onClick={() => setView("monthly")}>Mensile</button><button className={view === "weekly" ? "active" : ""} onClick={() => setView("weekly")}>Settimanale</button></div></header>
@@ -457,6 +481,7 @@ function ChannelsView({ payload }: { payload: DashboardPayload }) {
       <section className="panel table-panel channel-table"><header><div><h3>Conversione dei lead per canale</h3><p>Totale completo del periodo selezionato</p></div><BarChart3 size={19} /></header><div className="data-table"><div className="data-row data-head"><span>Canale</span><span>Lead</span><span>App.</span><span>Lead → App.</span><span>Preventivi</span><span>Lead → Prev.</span><span>Contratti</span><span>Prev. → Contr.</span><span>Lead → Contr.</span></div>{leadRows.map((item) => <div className="data-row" key={item.channel}><b>{item.channel}</b><strong>{item.entries}</strong><span>{item.appointments}</span><span>{percentage(item.appointments, item.entries)}</span><span>{item.quotes}</span><span>{percentage(item.quotes, item.entries)}</span><strong>{item.contracts}</strong><span>{percentage(item.contracts, item.quotes)}</span><span>{percentage(item.contracts, item.entries)}</span></div>)}<div className="data-row data-total"><b>TOTALE LEAD</b><strong>{leadTotals.entries}</strong><strong>{leadTotals.appointments}</strong><strong>{percentage(leadTotals.appointments, leadTotals.entries)}</strong><strong>{leadTotals.quotes}</strong><strong>{percentage(leadTotals.quotes, leadTotals.entries)}</strong><strong>{leadTotals.contracts}</strong><strong>{percentage(leadTotals.contracts, leadTotals.quotes)}</strong><strong>{percentage(leadTotals.contracts, leadTotals.entries)}</strong></div></div></section>
       <section className="panel table-panel direct-channel-table"><header><div><h3>Conversione degli ingressi fisici</h3><p>Totale completo del periodo selezionato</p></div><FileText size={19} /></header><div className="data-table"><div className="data-row data-head"><span>Fonte</span><span>App.</span><span>Preventivi</span><span>App. → Prev.</span><span>Contratti</span><span>Prev. → Contr.</span></div>{directRows.map((item) => <div className="data-row" key={item.channel}><b>{item.channel}</b><strong>{item.appointments}</strong><strong>{item.quotes}</strong><span>{percentage(item.quotes, item.appointments)}</span><strong>{item.contracts}</strong><span>{percentage(item.contracts, item.quotes)}</span></div>)}<div className="data-row data-total"><b>TOTALE FISICI</b><strong>{directTotals.appointments}</strong><strong>{directTotals.quotes}</strong><strong>{percentage(directTotals.quotes, directTotals.appointments)}</strong><strong>{directTotals.contracts}</strong><strong>{percentage(directTotals.contracts, directTotals.quotes)}</strong></div></div></section>
       <section className="panel table-panel channel-seller-table"><header><div><h3>Divisione per venditore</h3><p>Appuntamenti, preventivi e contratti distinti tra Lead e Fisici</p></div><Users size={19} /></header><div className="data-table"><div className="data-row data-head"><span>Venditore</span><span>App. lead</span><span>Prev. lead</span><span>Contr. lead</span><span>App. fisici</span><span>Prev. fisici</span><span>Contr. fisici</span><span>App. totali</span><span>Prev. totali</span><span>Contr. totali</span><span>CR totale</span></div>{sellerRows.map((item) => <div className="data-row" key={item.name}><b>{item.name}</b><span>{item.leadAppointments}</span><span>{item.leadQuotes}</span><strong>{item.leadContracts}</strong><span>{item.directAppointments}</span><span>{item.directQuotes}</span><strong>{item.directContracts}</strong><strong>{item.leadAppointments + item.directAppointments}</strong><strong>{item.leadQuotes + item.directQuotes}</strong><strong>{item.leadContracts + item.directContracts}</strong><span>{percentage(item.leadContracts + item.directContracts, item.leadQuotes + item.directQuotes)}</span></div>)}</div></section>
+      <section className="panel table-panel show-rate-seller-table"><header><div><h3>Efficienza appuntamenti lead per venditore</h3><p>Dal primo appuntamento lead fino al contratto confermato nel file Venduto</p></div><Gauge size={19} /></header><div className="data-table"><div className="data-row data-head"><span>Venditore</span><span>App. lead</span><span>Show (SI)</span><span>No show (NO)</span><span>Da aggiornare</span><span>Show rate</span><span>Contratti lead</span><span>App. → Contr.</span></div>{showSellerRows.map((item) => { const leadContracts = sellerRows.find((row) => row.name === item.name)?.leadContracts ?? 0; return <div className="data-row" key={item.name}><b>{item.name}</b><strong>{item.leadAppointments}</strong><strong>{item.leadPresented}</strong><span>{item.leadNoShows}</span><span>{item.leadPending}</span><strong>{percentage(item.leadPresented, item.leadPresented + item.leadNoShows)}</strong><strong>{leadContracts}</strong><strong>{percentage(leadContracts, item.leadAppointments)}</strong></div>; })}<div className="data-row data-total"><b>TOTALE LEAD</b><strong>{showSellerTotals.leadAppointments}</strong><strong>{showSellerTotals.leadPresented}</strong><strong>{showSellerTotals.leadNoShows}</strong><strong>{showSellerTotals.leadPending}</strong><strong>{percentage(showSellerTotals.leadPresented, showSellerTotals.leadPresented + showSellerTotals.leadNoShows)}</strong><strong>{leadContractsTotal}</strong><strong>{percentage(leadContractsTotal, showSellerTotals.leadAppointments)}</strong></div></div></section>
       <div className="notice"><CircleAlert size={17} /><span><b>Venditori:</b> gli appuntamenti arrivano dagli eventi APP di Google Calendar; titolo e descrizione permettono di leggere venditore, cliente, telefono e fonte. I preventivi usano il Funzionario e i contratti il Venditore del file Venduto. I canali digitali restano sempre nel funnel Lead.</span></div></> : <section className="placeholder compact"><CircleAlert size={30} /><h2>Analisi canali in attesa</h2><p>Aggiorna Apps Script con la versione Canali.</p></section>}
   </>;
 }
