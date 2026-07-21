@@ -67,7 +67,17 @@ export type DashboardPayload = {
 export type ChannelCohortItem = {
   year: number;
   month: number;
+  week: number;
   channel: string;
+  entries: number;
+  appointments: number;
+  quotes: number;
+  contracts: number;
+  sellers: ChannelSellerItem[];
+};
+
+export type ChannelSellerItem = {
+  name: string;
   entries: number;
   appointments: number;
   quotes: number;
@@ -77,6 +87,7 @@ export type ChannelCohortItem = {
 export type ShowRateHistoryItem = {
   year: number;
   month: number;
+  week: number;
   appointments: number;
   presented: number;
   noShows: number;
