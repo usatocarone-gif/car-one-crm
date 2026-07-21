@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BarChart3, CalendarDays, CheckCircle2, CircleAlert, FileCheck2, FileText, Gauge, LayoutDashboard, RefreshCw, Target, TrendingUp, Users } from "lucide-react";
-import type { AppointmentItem, ContractHistoryItem, DashboardPayload, DashboardPeriod, LeadHistoryItem, PeriodKey, QuoteHistoryItem } from "@/lib/types";
+import { BarChart3, CalendarDays, CheckCircle2, CircleAlert, FileCheck2, FileText, Gauge, GitBranch, LayoutDashboard, RefreshCw, Target, TrendingUp, Users } from "lucide-react";
+import type { AppointmentItem, ChannelCohortItem, ContractHistoryItem, DashboardPayload, DashboardPeriod, LeadHistoryItem, PeriodKey, QuoteHistoryItem } from "@/lib/types";
 import { snapshot } from "@/lib/snapshot";
 
 const menu = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { id: "channels", label: "Canali", icon: GitBranch },
   { id: "sources", label: "Provenienza lead", icon: TrendingUp },
   { id: "agenda", label: "Agenda", icon: CalendarDays },
   { id: "quotes", label: "Preventivi", icon: FileText },
@@ -365,6 +366,72 @@ function SourcesView({ payload }: { payload: DashboardPayload }) {
   </>;
 }
 
+type ChannelSummary = { channel: string; entries: number; appointments: number; quotes: number; contracts: number };
+
+function summarizeChannels(items: ChannelCohortItem[]) {
+  const grouped = new Map<string, ChannelSummary>();
+  items.forEach((item) => {
+    const current = grouped.get(item.channel) ?? { channel: item.channel, entries: 0, appointments: 0, quotes: 0, contracts: 0 };
+    current.entries += item.entries; current.appointments += item.appointments; current.quotes += item.quotes; current.contracts += item.contracts;
+    grouped.set(item.channel, current);
+  });
+  return [...grouped.values()].sort((a, b) => b.entries - a.entries || b.contracts - a.contracts || a.channel.localeCompare(b.channel));
+}
+
+function ChannelFunnel({ title, subtitle, rows }: { title: string; subtitle: string; rows: Array<[string, number]> }) {
+  const base = Math.max(1, rows[0]?.[1] ?? 1);
+  return <section className="panel channel-funnel"><header><div><h3>{title}</h3><p>{subtitle}</p></div><GitBranch size={19} /></header><div className="channel-funnel-list">
+    {rows.map(([label, value], index) => <div className="channel-funnel-row" key={label}><div><span>{label}</span><strong>{value}</strong></div><div className="channel-funnel-track"><i style={{ width: `${Math.max(value ? 5 : 0, Math.min(100, value / base * 100))}%` }} /></div><small>{index === 0 ? "Ingresso" : percentage(value, base)}</small></div>)}
+  </div></section>;
+}
+
+function ChannelMonthlyChart({ leadItems, directItems }: { leadItems: ChannelCohortItem[]; directItems: ChannelCohortItem[] }) {
+  const keys = [...new Set([...leadItems, ...directItems].map((item) => `${item.year}-${String(item.month).padStart(2, "0")}`))].sort().slice(-12);
+  const rows = keys.map((key) => {
+    const [year, month] = key.split("-").map(Number);
+    const leads = leadItems.filter((item) => item.year === year && item.month === month).reduce((sum, item) => sum + item.entries, 0);
+    const quotes = [...leadItems, ...directItems].filter((item) => item.year === year && item.month === month).reduce((sum, item) => sum + item.quotes, 0);
+    const contracts = [...leadItems, ...directItems].filter((item) => item.year === year && item.month === month).reduce((sum, item) => sum + item.contracts, 0);
+    return { key, label: `${MONTHS[month - 1]} ${String(year).slice(-2)}`, leads, quotes, contracts };
+  });
+  const ceiling = Math.max(1, ...rows.flatMap((item) => [item.leads, item.quotes, item.contracts]));
+  return <section className="panel channel-monthly"><header><div><h3>Andamento per mese di ingresso</h3><p>Coorti mensili: lead, preventivi e contratti maturati</p></div><TrendingUp size={19} /></header>
+    {rows.length ? <div className="channel-month-chart">{rows.map((item) => <div className="channel-month" key={item.key}><div className="channel-bars"><i className="leads" style={{ height: `${Math.max(item.leads ? 3 : 0, item.leads / ceiling * 100)}%` }} title={`${item.label}: ${item.leads} lead`} /><i className="quotes" style={{ height: `${Math.max(item.quotes ? 3 : 0, item.quotes / ceiling * 100)}%` }} title={`${item.label}: ${item.quotes} preventivi`} /><i className="contracts" style={{ height: `${Math.max(item.contracts ? 3 : 0, item.contracts / ceiling * 100)}%` }} title={`${item.label}: ${item.contracts} contratti`} /></div><span>{item.label}</span></div>)}</div> : <div className="empty-compact">Nessuna coorte disponibile.</div>}
+    <div className="trend-legend"><span><i className="channel-leads" />Lead</span><span><i className="quotes" />Preventivi</span><span><i className="actual" />Contratti</span></div>
+  </section>;
+}
+
+function ChannelsView({ payload }: { payload: DashboardPayload }) {
+  const analysis = payload.channelAnalysis;
+  const leadHistory = analysis?.leadCohorts ?? [];
+  const directHistory = analysis?.directCohorts ?? [];
+  const allHistory = [...leadHistory, ...directHistory];
+  const currentDate = new Date();
+  const years = [...new Set(allHistory.map((item) => item.year))].sort((a, b) => b - a);
+  const channels = [...new Set(allHistory.map((item) => item.channel))].sort((a, b) => a === "Non attribuiti" ? 1 : b === "Non attribuiti" ? -1 : a.localeCompare(b));
+  const [year, setYear] = useState(String(currentDate.getFullYear()));
+  const [month, setMonth] = useState(String(currentDate.getMonth() + 1));
+  const [channel, setChannel] = useState("all");
+  const filter = (item: ChannelCohortItem) => (year === "all" || item.year === Number(year)) && (month === "all" || item.month === Number(month)) && (channel === "all" || item.channel === channel);
+  const leadRows = summarizeChannels(leadHistory.filter(filter));
+  const directRows = summarizeChannels(directHistory.filter(filter));
+  const total = (rows: ChannelSummary[]) => rows.reduce((sum, item) => ({ entries: sum.entries + item.entries, appointments: sum.appointments + item.appointments, quotes: sum.quotes + item.quotes, contracts: sum.contracts + item.contracts }), { entries: 0, appointments: 0, quotes: 0, contracts: 0 });
+  const leadTotals = total(leadRows); const directTotals = total(directRows);
+  const quotes = leadTotals.quotes + directTotals.quotes; const contracts = leadTotals.contracts + directTotals.contracts;
+  const show = (analysis?.showRateHistory ?? []).filter((item) => (year === "all" || item.year === Number(year)) && (month === "all" || item.month === Number(month))).reduce((sum, item) => ({ presented: sum.presented + item.presented, noShows: sum.noShows + item.noShows, pending: sum.pending + item.pending }), { presented: 0, noShows: 0, pending: 0 });
+  const chartLeads = leadHistory.filter((item) => (year === "all" || item.year === Number(year)) && (channel === "all" || item.channel === channel));
+  const chartDirect = directHistory.filter((item) => (year === "all" || item.year === Number(year)) && (channel === "all" || item.channel === channel));
+  return <><header className="page-head"><div><p className="eyebrow">Acquisizione e conversione</p><h1>Canali</h1><span>Coorti mensili · lead, preventivi in ingresso e contratti verificati</span></div></header>
+    <section className="filter-bar"><label><span>Anno di ingresso</span><select value={year} onChange={(e) => setYear(e.target.value)}><option value="all">Tutti</option>{years.map((item) => <option value={item} key={item}>{item}</option>)}</select></label><label><span>Mese di ingresso</span><select value={month} onChange={(e) => setMonth(e.target.value)}><option value="all">Tutti</option>{MONTHS.map((item, index) => <option value={index + 1} key={item}>{item}</option>)}</select></label><label><span>Canale / fonte</span><select value={channel} onChange={(e) => setChannel(e.target.value)}><option value="all">Tutti</option>{channels.map((item) => <option value={item} key={item}>{item}</option>)}</select></label><button onClick={() => { setYear("all"); setMonth("all"); setChannel("all"); }}>Azzera filtri</button></section>
+    {analysis ? <><div className="metrics-grid channel-metrics"><Metric label="Lead in ingresso" value={leadTotals.entries} primary={percentage(leadTotals.appointments, leadTotals.entries)} secondary="lead → appuntamento" /><Metric label="Preventivi diretti" value={directTotals.quotes} primary={`${directRows.length} fonti`} secondary="senza lead collegato" /><Metric label="Preventivi totali" value={quotes} primary={percentage(contracts, quotes)} secondary="preventivi → contratti" /><Metric label="Contratti verificati" value={contracts} primary={`${leadTotals.contracts} da lead · ${directTotals.contracts} diretti`} secondary="dal file Venduto" /><Metric label="Show rate generale" value={percentage(show.presented, show.presented + show.noShows)} primary={`${show.presented} SI · ${show.noShows} NO`} secondary={`${show.pending} da aggiornare`} /></div>
+      <div className="two-columns channel-funnels"><ChannelFunnel title="Funnel generato dai lead" subtitle="Il mese segue la coorte fino al contratto" rows={[["Lead", leadTotals.entries], ["Appuntamenti", leadTotals.appointments], ["Preventivi", leadTotals.quotes], ["Contratti", leadTotals.contracts]]} /><ChannelFunnel title="Preventivi in ingresso" subtitle="Walk-in, loyalty, conoscenza e fonti dirette" rows={[["Preventivi", directTotals.quotes], ["Contratti", directTotals.contracts]]} /></div>
+      <ChannelMonthlyChart leadItems={chartLeads} directItems={chartDirect} />
+      <section className="panel table-panel channel-table"><header><div><h3>Conversione dei lead per canale</h3><p>Appuntamenti dal foglio Make Leads; contratti confermati dal file Venduto</p></div><BarChart3 size={19} /></header><div className="data-table"><div className="data-row data-head"><span>Canale</span><span>Lead</span><span>App.</span><span>Lead → App.</span><span>Preventivi</span><span>Lead → Prev.</span><span>Contratti</span><span>Prev. → Contr.</span><span>Lead → Contr.</span></div>{leadRows.map((item) => <div className="data-row" key={item.channel}><b>{item.channel}</b><strong>{item.entries}</strong><span>{item.appointments}</span><span>{percentage(item.appointments, item.entries)}</span><span>{item.quotes}</span><span>{percentage(item.quotes, item.entries)}</span><strong>{item.contracts}</strong><span>{percentage(item.contracts, item.quotes)}</span><span>{percentage(item.contracts, item.entries)}</span></div>)}</div></section>
+      <section className="panel table-panel direct-channel-table"><header><div><h3>Conversione dei preventivi in ingresso</h3><p>I vuoti restano non attribuiti</p></div><FileText size={19} /></header><div className="data-table"><div className="data-row data-head"><span>Fonte</span><span>Preventivi</span><span>Quota sul totale</span><span>Contratti</span><span>Conversione</span></div>{directRows.map((item) => <div className="data-row" key={item.channel}><b>{item.channel}</b><strong>{item.quotes}</strong><span>{percentage(item.quotes, directTotals.quotes)}</span><strong>{item.contracts}</strong><span>{percentage(item.contracts, item.quotes)}</span></div>)}</div></section>
+      <div className="notice"><CircleAlert size={17} /><span>Lo show rate arriva dagli esiti <b>SI/NO</b> di Google Calendar ed è generale, perché gli eventi non contengono il cliente.</span></div></> : <section className="placeholder compact"><CircleAlert size={30} /><h2>Analisi canali in attesa</h2><p>Aggiorna Apps Script con la versione Canali.</p></section>}
+  </>;
+}
+
 function quoteOutcome(item: QuoteHistoryItem) {
   const text = `${item.outcome} ${item.feedback}`.toLowerCase();
   if (text.includes("contratt")) return "Contratto";
@@ -608,6 +675,6 @@ export default function Home() {
 
   return <main className="app-shell">
     <aside className="sidebar"><div className="brand"><i /><div><strong>Car One CRM</strong><span>Usato · Perugia</span></div></div><nav>{menu.map(({ id, label, icon: Icon }) => <button key={id} className={section === id ? "active" : ""} onClick={() => setSection(id)}><Icon size={18} /><span>{label}</span></button>)}</nav><footer><CheckCircle2 size={15} /><div><strong>{payload.source === "google-live" ? "Google live · 5 min" : "Snapshot verificato"}</strong><span>{updated || "Caricamento…"}</span></div><button aria-label="Aggiorna dati" onClick={() => void refresh()} disabled={loading}><RefreshCw size={15} className={loading ? "spin" : ""} /></button></footer></aside>
-    <section className="content">{section === "dashboard" ? <Dashboard payload={payload} period={period} setPeriod={setPeriod} /> : section === "sources" ? <SourcesView payload={payload} /> : section === "quotes" ? <QuotesView payload={payload} /> : section === "contracts" ? <ContractsView payload={payload} /> : section === "sellers" ? <SellersView payload={payload} /> : <Placeholder section={section} />}</section>
+    <section className="content">{section === "dashboard" ? <Dashboard payload={payload} period={period} setPeriod={setPeriod} /> : section === "channels" ? <ChannelsView payload={payload} /> : section === "sources" ? <SourcesView payload={payload} /> : section === "quotes" ? <QuotesView payload={payload} /> : section === "contracts" ? <ContractsView payload={payload} /> : section === "sellers" ? <SellersView payload={payload} /> : <Placeholder section={section} />}</section>
   </main>;
 }

@@ -40,11 +40,12 @@ function buildDashboard_() {
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   const weeklyHistoryStart = addDays_(weekStart, -77);
   const upcomingEnd = addDays_(todayStart, 8);
-  const calendarStart = weeklyHistoryStart;
+  const calendarStart = new Date(2025, 5, 1);
   const calendarEnd = upcomingEnd > monthEnd ? upcomingEnd : monthEnd;
 
   const leadRows = readLeads_();
   const leadHistory = readLeadHistory_();
+  const leadAppointments = readLeadAppointments_();
   const quotes = readQuotes_();
   const officialSales = readOfficialSales_();
   const projectionSales = readProjectionSales_();
@@ -54,6 +55,7 @@ function buildDashboard_() {
     return inRange_(sale.date, monthStart, monthEnd);
   }));
   const appointments = readAppointments_(calendarStart, calendarEnd);
+  const channelAnalysis = buildChannelAnalysis_(leadHistory, leadAppointments, quotes, sales, appointments);
 
   const today = buildPeriod_(leadRows, sales, appointments, quotes, todayStart, tomorrow, null, now);
   const week = buildPeriod_(leadRows, sales, appointments, quotes, weekStart, weekEnd, 12, now);
@@ -92,7 +94,7 @@ function buildDashboard_() {
 
   return {
     source: 'google-live',
-    apiVersion: '2026-07-16-analisi-commerciale-v7',
+    apiVersion: '2026-07-20-canali-v8',
     lastUpdated: now.toISOString(),
     contractData: {
       currentPeriodSource: "PROIEZ. REDDITIVITA'",
@@ -128,6 +130,7 @@ function buildDashboard_() {
     weeklyHistory: buildWeeklyHistory_(appointments, quotes, sales, weeklyHistoryStart, 12),
     leadSources: leadSources,
     leadHistory: aggregateLeadHistory_(leadHistory),
+    channelAnalysis: channelAnalysis,
     sellerConversions: sellerConversions,
     contractHistory: sales.filter(function (sale) {
       return sale.date >= new Date(2024, 0, 1) && sale.date <= now;
@@ -169,6 +172,7 @@ function readQuotes_() {
     return {
       date: parseDate_(row[0]),
       client: String(row[1] || '').trim(),
+      phone: normalizePhone_(row[2]),
       seller: normalizeHistorySeller_(row[3]),
       vehicle: String(row[4] || '').trim(),
       feedback: String(row[5] || '').trim(),
@@ -191,6 +195,8 @@ function readLeadHistory_() {
       if (!date || date.getFullYear() !== source.year || date.getMonth() + 1 !== source.month) return;
       const channel = normalizeSource_(row[5]);
       const city = cleanLeadCity_(row[6]);
+      const client = String(row[1] || '').trim();
+      const phone = normalizePhone_(row[4]);
       const key = [
         Utilities.formatDate(date, 'Europe/Rome', 'yyyy-MM-dd HH:mm:ss'),
         String(row[2] || '').trim().toLowerCase(),
@@ -198,8 +204,33 @@ function readLeadHistory_() {
       ].join('|');
       if (seen[key]) return;
       seen[key] = true;
-      result.push({ date: date, channel: channel, city: city });
+      result.push({ date: date, channel: channel, city: city, client: client, phone: phone });
     });
+  });
+  return result;
+}
+
+function readLeadAppointments_() {
+  const sheet = SpreadsheetApp.openById(LEADS_ID).getSheetByName('Appuntamenti');
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 10).getValues();
+  const seen = {};
+  const result = [];
+  rows.forEach(function (row) {
+    const date = parseDate_(row[0]);
+    if (!date) return;
+    const client = String(row[1] || '').trim();
+    const phone = normalizePhone_(row[4]);
+    const channel = normalizeSource_(row[5]);
+    const leadId = String(row[9] || '').trim();
+    const key = leadId || [
+      Utilities.formatDate(date, 'Europe/Rome', 'yyyy-MM-dd HH:mm:ss'),
+      contactNameKey_(client),
+      phone
+    ].join('|');
+    if (seen[key]) return;
+    seen[key] = true;
+    result.push({ date: date, channel: channel, client: client, phone: phone });
   });
   return result;
 }
@@ -224,6 +255,142 @@ function aggregateLeadHistory_(rows) {
     grouped[key].leads += 1;
   });
   return Object.keys(grouped).map(function (key) { return grouped[key]; });
+}
+
+function buildChannelAnalysis_(leadHistory, leadAppointments, quotes, sales, calendarAppointments) {
+  const leadBuckets = {};
+  const directBuckets = {};
+  const leadByPhone = {};
+  const leadByName = {};
+  const quoteByName = {};
+  let unattributedQuotes = 0;
+  let unattributedContracts = 0;
+
+  leadHistory.forEach(function (lead) {
+    addToChannelBucket_(leadBuckets, lead.date, lead.channel, 'entries', 1);
+    addContactIndex_(leadByPhone, lead.phone, lead);
+    addContactIndex_(leadByName, contactNameKey_(lead.client), lead);
+  });
+
+  leadAppointments.forEach(function (item) {
+    const matchedLead = findContactBefore_(leadByPhone, leadByName, item.phone, item.client, item.date);
+    const cohort = matchedLead || item;
+    addToChannelBucket_(leadBuckets, cohort.date, cohort.channel, 'appointments', 1);
+  });
+
+  quotes.forEach(function (quote) {
+    const matchedLead = findContactBefore_(leadByPhone, leadByName, quote.phone, quote.client, quote.date);
+    if (matchedLead) {
+      quote.channelAssignment = { kind: 'lead', date: matchedLead.date, channel: matchedLead.channel };
+      addToChannelBucket_(leadBuckets, matchedLead.date, matchedLead.channel, 'quotes', 1);
+    } else {
+      const directSource = normalizeDirectSource_(quote.source);
+      quote.channelAssignment = { kind: 'direct', date: quote.date, channel: directSource };
+      addToChannelBucket_(directBuckets, quote.date, directSource, 'entries', 1);
+      addToChannelBucket_(directBuckets, quote.date, directSource, 'quotes', 1);
+      if (directSource === 'Non attribuiti') unattributedQuotes += 1;
+    }
+    addContactIndex_(quoteByName, contactNameKey_(quote.client), quote);
+  });
+
+  sales.forEach(function (sale) {
+    const matchingQuote = findLatestBefore_(quoteByName[contactNameKey_(sale.client)] || [], sale.date);
+    if (matchingQuote && matchingQuote.channelAssignment) {
+      const assignment = matchingQuote.channelAssignment;
+      const target = assignment.kind === 'lead' ? leadBuckets : directBuckets;
+      addToChannelBucket_(target, assignment.date, assignment.channel, 'contracts', 1);
+      return;
+    }
+    const matchedLead = findContactBefore_({}, leadByName, '', sale.client, sale.date);
+    if (matchedLead) {
+      addToChannelBucket_(leadBuckets, matchedLead.date, matchedLead.channel, 'contracts', 1);
+      return;
+    }
+    unattributedContracts += 1;
+  });
+
+  return {
+    leadCohorts: channelBucketsToArray_(leadBuckets),
+    directCohorts: channelBucketsToArray_(directBuckets),
+    showRateHistory: buildShowRateHistory_(calendarAppointments),
+    unattributedQuotes: unattributedQuotes,
+    unattributedContracts: unattributedContracts
+  };
+}
+
+function addToChannelBucket_(buckets, date, channel, field, amount) {
+  if (!date) return;
+  const normalizedChannel = channel || 'Non attribuiti';
+  const key = [date.getFullYear(), date.getMonth() + 1, normalizedChannel].join('|');
+  if (!buckets[key]) {
+    buckets[key] = { year: date.getFullYear(), month: date.getMonth() + 1, channel: normalizedChannel, entries: 0, appointments: 0, quotes: 0, contracts: 0 };
+  }
+  buckets[key][field] += amount;
+}
+
+function channelBucketsToArray_(buckets) {
+  return Object.keys(buckets).map(function (key) { return buckets[key]; }).sort(function (a, b) {
+    return a.year - b.year || a.month - b.month || a.channel.localeCompare(b.channel);
+  });
+}
+
+function buildShowRateHistory_(appointments) {
+  const grouped = {};
+  appointments.forEach(function (item) {
+    const key = [item.start.getFullYear(), item.start.getMonth() + 1].join('|');
+    if (!grouped[key]) grouped[key] = { year: item.start.getFullYear(), month: item.start.getMonth() + 1, appointments: 0, presented: 0, noShows: 0, pending: 0 };
+    grouped[key].appointments += 1;
+    if (item.status === 'presented') grouped[key].presented += 1;
+    else if (item.status === 'no-show') grouped[key].noShows += 1;
+    else grouped[key].pending += 1;
+  });
+  return Object.keys(grouped).map(function (key) { return grouped[key]; }).sort(function (a, b) {
+    return a.year - b.year || a.month - b.month;
+  });
+}
+
+function addContactIndex_(index, key, item) {
+  if (!key) return;
+  if (!index[key]) index[key] = [];
+  index[key].push(item);
+}
+
+function findContactBefore_(phoneIndex, nameIndex, phone, client, date) {
+  const normalizedPhone = normalizePhone_(phone);
+  const byPhone = normalizedPhone ? (phoneIndex[normalizedPhone] || []) : [];
+  const phoneMatch = findLatestBefore_(byPhone, date);
+  if (phoneMatch) return phoneMatch;
+  return findLatestBefore_(nameIndex[contactNameKey_(client)] || [], date);
+}
+
+function findLatestBefore_(items, date) {
+  let match = null;
+  items.forEach(function (item) {
+    if (item.date <= date && (!match || item.date > match.date)) match = item;
+  });
+  return match;
+}
+
+function normalizePhone_(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (digits.length < 7) return '';
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
+function contactNameKey_(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\([^)]*\)/g, ' ').replace(/[^A-Z0-9 ]/g, ' ').split(/\s+/).filter(function (token) {
+    return token.length > 1 && ['SIG', 'SIGRA', 'SIGNORE', 'SIGNORA'].indexOf(token) < 0;
+  }).sort().join(' ');
+}
+
+function normalizeDirectSource_(value) {
+  const source = String(value || '').trim().toLowerCase().replace(/[-_]+/g, ' ');
+  if (!source) return 'Non attribuiti';
+  if (source.indexOf('walk') >= 0 && source.indexOf('social') >= 0) return 'Walk-in social';
+  if (source.indexOf('walk') >= 0 || source === 'wi') return 'Walk-in';
+  if (source.indexOf('loyal') >= 0 || source.indexOf('gia cliente') >= 0) return 'Loyalty';
+  if (source.indexOf('conosc') >= 0 || source.indexOf('passaparola') >= 0) return 'Conoscenza';
+  return normalizeSource_(value);
 }
 
 function readOfficialSales_() {
@@ -430,10 +597,12 @@ function appointmentStatus_(title) {
   return 'pending';
 }
 function normalizeSource_(value) {
-  const source = String(value || '').trim().toLowerCase();
+  const source = String(value || '').trim().toLowerCase().replace(/[-_]+/g, ' ');
   if (source === 'fb' || source === 'facebook') return 'Facebook';
   if (source === 'ig' || source === 'instagram') return 'Instagram';
   if (source === 'tiktok' || source === 'tik tok') return 'TikTok';
+  if (source === 'a24' || source.indexOf('autoscout') >= 0) return 'AutoScout24';
+  if (source.indexOf('sito') >= 0 || source.indexOf('website') >= 0) return 'Sito';
   if (source.indexOf('whatsapp') >= 0) return 'WhatsApp';
   if (source.indexOf('chiamat') >= 0 || source.indexOf('telefon') >= 0) return 'Chiamata';
   return source ? source.charAt(0).toUpperCase() + source.slice(1) : 'Non indicata';

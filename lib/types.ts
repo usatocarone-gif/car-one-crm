@@ -61,6 +61,34 @@ export type DashboardPayload = {
   }>;
   leadHistory: LeadHistoryItem[];
   contractHistory: ContractHistoryItem[];
+  channelAnalysis?: ChannelAnalysis;
+};
+
+export type ChannelCohortItem = {
+  year: number;
+  month: number;
+  channel: string;
+  entries: number;
+  appointments: number;
+  quotes: number;
+  contracts: number;
+};
+
+export type ShowRateHistoryItem = {
+  year: number;
+  month: number;
+  appointments: number;
+  presented: number;
+  noShows: number;
+  pending: number;
+};
+
+export type ChannelAnalysis = {
+  leadCohorts: ChannelCohortItem[];
+  directCohorts: ChannelCohortItem[];
+  showRateHistory: ShowRateHistoryItem[];
+  unattributedQuotes: number;
+  unattributedContracts: number;
 };
 
 export type QuoteHistoryItem = {
