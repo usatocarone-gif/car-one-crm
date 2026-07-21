@@ -1,4 +1,4 @@
-CAR ONE CRM — ANALISI COMMERCIALE V7
+CAR ONE CRM — ANALISI CANALI V8
 
 Questa versione sostituisce V5 e V6. Non installare prima gli aggiornamenti precedenti.
 
@@ -27,4 +27,10 @@ Questa versione sostituisce V5 e V6. Non installare prima gli aggiornamenti prec
 - Tab Preventivi: filtri, follow-up, esiti, cluster richieste e contratti verificati.
 - Un contratto e considerato definitivo soltanto se il cliente e presente nel file Venduto con data uguale o successiva al preventivo.
 
-Versione Apps Script attesa: 2026-07-16-analisi-commerciale-v7
+Versione Apps Script attesa: 2026-07-20-canali-v8
+
+REGOLA CONTRATTI TAB CANALI
+- Il mese corrente usa esclusivamente PROIEZ. REDDITIVITA'.
+- I mesi chiusi del 2026 usano CAR 2026 e AD MOTOR 2026.
+- Il tab Preventivi serve per attribuire il percorso e il canale, ma non conferma la vendita.
+- Un contratto entra nell'analisi Canali soltanto se presente nelle fonti Venduto sopra indicate.

@@ -10,6 +10,8 @@ MVP della dashboard commerciale per il concessionario usato Car One.
 - lead da Google Sheets;
 - appuntamenti `APP` da Google Calendar;
 - performance venditori;
+- analisi canali a coorte con lead, appuntamenti, preventivi e contratti;
+- funnel separato per preventivi diretti;
 - fallback automatico su snapshot verificato quando Google non è configurato.
 
 ## Avvio locale
