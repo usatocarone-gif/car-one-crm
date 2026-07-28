@@ -49,9 +49,12 @@ function buildDashboard_() {
   const quotes = readQuotes_();
   const officialSales = readOfficialSales_();
   const projectionSales = readProjectionSales_();
+  const actualProjectionSales = projectionSales.filter(function (sale) {
+    return sale.date <= now;
+  });
   const sales = officialSales.filter(function (sale) {
     return !inRange_(sale.date, monthStart, monthEnd);
-  }).concat(projectionSales.filter(function (sale) {
+  }).concat(actualProjectionSales.filter(function (sale) {
     return inRange_(sale.date, monthStart, monthEnd);
   }));
   const appointments = readAppointments_(calendarStart, calendarEnd);
@@ -96,12 +99,12 @@ function buildDashboard_() {
 
   return {
     source: 'google-live',
-    apiVersion: '2026-07-28-business-overview-v9',
+    apiVersion: '2026-07-28-data-reconciliation-v10',
     lastUpdated: now.toISOString(),
     contractData: {
       currentPeriodSource: "PROIEZ. REDDITIVITA'",
       projectionRowsRead: projectionSales.length,
-      projectionContractsThisMonth: projectionSales.filter(function (sale) {
+      projectionContractsThisMonth: actualProjectionSales.filter(function (sale) {
         return inRange_(sale.date, monthStart, monthEnd);
       }).length
     },
@@ -305,14 +308,14 @@ function buildChannelAnalysis_(leadHistory, leadAppointments, quotes, sales, cal
     appointment.channel = cohort ? cohort.channel : explicitChannel;
     appointment.cohortDate = matchedLead ? matchedLead.date : (matchedAppointment ? matchedAppointment.date : appointment.start);
     socialAppointments.push(appointment);
-    addToChannelBucket_(leadBuckets, appointment.cohortDate, appointment.channel, 'appointments', 1, appointment.seller);
+    addToChannelBucket_(leadBuckets, appointment.start, appointment.channel, 'appointments', 1, appointment.seller);
   });
 
   quotes.forEach(function (quote) {
     const matchedLead = findContactBefore_(leadByPhone, leadByName, quote.phone, quote.client, quote.date);
     if (matchedLead) {
-      quote.channelAssignment = { kind: 'lead', date: matchedLead.date, channel: matchedLead.channel };
-      addToChannelBucket_(leadBuckets, matchedLead.date, matchedLead.channel, 'quotes', 1, quote.seller);
+      quote.channelAssignment = { kind: 'lead', date: quote.date, channel: matchedLead.channel };
+      addToChannelBucket_(leadBuckets, quote.date, matchedLead.channel, 'quotes', 1, quote.seller);
     } else {
       const directSource = normalizeDirectSource_(quote.source);
       quote.channelAssignment = { kind: 'direct', date: quote.date, channel: directSource };
@@ -329,20 +332,19 @@ function buildChannelAnalysis_(leadHistory, leadAppointments, quotes, sales, cal
     if (matchingQuote && matchingQuote.channelAssignment) {
       const assignment = matchingQuote.channelAssignment;
       const target = assignment.kind === 'lead' ? leadBuckets : directBuckets;
-      addToChannelBucket_(target, assignment.date, assignment.channel, 'contracts', 1, sale.seller);
+      addToChannelBucket_(target, sale.date, assignment.channel, 'contracts', 1, sale.seller);
       return;
     }
     const matchedLead = findContactBefore_({}, leadByName, '', sale.client, sale.date);
     if (matchedLead || saleIsLead) {
-      const cohortDate = matchedLead ? matchedLead.date : sale.date;
       const cohortChannel = matchedLead ? matchedLead.channel : normalizeSocialSource_(sale.origin) || 'Facebook';
-      addToChannelBucket_(leadBuckets, cohortDate, cohortChannel, 'quotes', 1, sale.seller);
-      addToChannelBucket_(leadBuckets, cohortDate, cohortChannel, 'contracts', 1, sale.seller);
+      addToChannelBucket_(leadBuckets, sale.date, cohortChannel, 'reconstructedQuotes', 1);
+      addToChannelBucket_(leadBuckets, sale.date, cohortChannel, 'contracts', 1, sale.seller);
       return;
     }
     const directSource = normalizeDirectSource_(sale.origin);
     addToChannelBucket_(directBuckets, sale.date, directSource, 'entries', 1, sale.seller);
-    addToChannelBucket_(directBuckets, sale.date, directSource, 'quotes', 1, sale.seller);
+    addToChannelBucket_(directBuckets, sale.date, directSource, 'reconstructedQuotes', 1);
     addToChannelBucket_(directBuckets, sale.date, directSource, 'contracts', 1, sale.seller);
     if (!sale.origin) unattributedContracts += 1;
   });
@@ -365,7 +367,7 @@ function addToChannelBucket_(buckets, date, channel, field, amount, seller) {
   const week = weekOfMonth_(date);
   const key = [date.getFullYear(), date.getMonth() + 1, week, normalizedChannel].join('|');
   if (!buckets[key]) {
-    buckets[key] = { year: date.getFullYear(), month: date.getMonth() + 1, week: week, channel: normalizedChannel, entries: 0, appointments: 0, quotes: 0, contracts: 0, sellers: [] };
+    buckets[key] = { year: date.getFullYear(), month: date.getMonth() + 1, week: week, channel: normalizedChannel, entries: 0, appointments: 0, quotes: 0, reconstructedQuotes: 0, contracts: 0, sellers: [] };
   }
   buckets[key][field] += amount;
   if (seller && seller !== 'NON ASSEGNATO') {
@@ -543,6 +545,9 @@ function readProjectionSales_() {
     }
     started = true;
     const seller = normalizeHistorySeller_(row[4]);
+    const vehicle = String(row[2] || '').trim();
+    const plate = String(row[3] || '').trim();
+    if (SELLERS.indexOf(seller) < 0 || !vehicle || !plate) continue;
     const property = String(row[5] || '').trim().toUpperCase();
     const company = property.indexOf('AD') >= 0 ? 'AD Motor' : 'Car One';
     result.push({

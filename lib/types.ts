@@ -75,6 +75,7 @@ export type ChannelCohortItem = {
   entries: number;
   appointments: number;
   quotes: number;
+  reconstructedQuotes?: number;
   contracts: number;
   sellers: ChannelSellerItem[];
 };
