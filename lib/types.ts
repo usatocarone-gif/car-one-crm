@@ -27,6 +27,7 @@ export type DashboardPeriod = {
   overdueAppointments?: number;
   quotes?: number;
   contracts: number;
+  revenue?: number;
   carOneContracts: number;
   adMotorContracts: number;
   target: number | null;
@@ -45,6 +46,8 @@ export type DashboardPayload = {
   upcomingAgenda?: Array<AppointmentItem & { date: string }>;
   quoteHistory?: QuoteHistoryItem[];
   weeklyHistory?: WeeklyCommercialItem[];
+  dailyHistory?: DailyCommercialItem[];
+  socialAppointmentHistory?: SocialAppointmentHistoryItem[];
   leadSources: Array<{
     name: string;
     leads: number;
@@ -145,6 +148,7 @@ export type ContractHistoryItem = {
   company: "Car One" | "AD Motor";
   origin: string;
   client?: string;
+  revenue: number;
 };
 
 export type WeeklyCommercialItem = {
@@ -153,4 +157,27 @@ export type WeeklyCommercialItem = {
   appointments: number;
   quotes: number;
   contracts: number;
+};
+
+export type DailyCommercialItem = {
+  date: string;
+  leads: number;
+  appointments: number;
+  presented: number;
+  noShows: number;
+  pending: number;
+  quotes: number;
+  contracts: number;
+  revenue: number;
+};
+
+export type SocialAppointmentHistoryItem = {
+  id: string;
+  date: string;
+  year: number;
+  month: number;
+  week: number;
+  seller: string;
+  channel: string;
+  status: "presented" | "no-show" | "pending";
 };
