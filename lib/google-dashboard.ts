@@ -1,7 +1,7 @@
 import { google } from "googleapis";
 import type { AppointmentItem, DashboardPayload, DashboardPeriod, SellerResult } from "./types";
 
-const SELLERS = ["CAIRONI", "GRANDOLINI", "LIGUORI", "MONACELLI", "BORDINI"];
+const SELLERS = ["CAIRONI", "GRANDOLINI", "LIGUORI", "MONACELLI", "BORDINI", "PAGLIARA"];
 
 function auth() {
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;

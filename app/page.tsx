@@ -14,7 +14,7 @@ const menu = [
   { id: "contracts", label: "Contratti", icon: FileCheck2 },
   { id: "sellers", label: "Conversione venditori", icon: BarChart3 },
 ];
-const SALES_TEAM = ["Caironi", "Grandolini", "Liguori", "Monacelli", "Bordini"];
+const SALES_TEAM = ["Caironi", "Grandolini", "Liguori", "Monacelli", "Bordini", "Pagliara"];
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat("it-IT", { maximumFractionDigits: 1 }).format(value);
@@ -310,6 +310,7 @@ function buildSelectedDashboardPeriod(payload: DashboardPayload, period: PeriodK
     };
   }).sort((a, b) => b.contracts - a.contracts);
   const now = new Date();
+  const isCurrentRange = now >= start && now < end;
   const target = period === "week" ? 12 : period === "month" ? 50 : null;
   const totalDays = sellingDaysThrough(start, addDays(end, -1));
   const cutoff = now < start ? start : now >= end ? addDays(end, -1) : now;
@@ -322,7 +323,10 @@ function buildSelectedDashboardPeriod(payload: DashboardPayload, period: PeriodK
     subtitle: period === "today"
       ? new Intl.DateTimeFormat("it-IT", { dateStyle: "full" }).format(start)
       : `${new Intl.DateTimeFormat("it-IT", { dateStyle: "medium" }).format(start)} – ${new Intl.DateTimeFormat("it-IT", { dateStyle: "medium" }).format(addDays(end, -1))}`,
-    leads: sum("leads"),
+    // Foglio1 contiene sempre i lead del mese corrente. Per il periodo in
+    // corso usiamo quindi il totale live restituito da Apps Script, senza
+    // sostituirlo con lo storico giornaliero (che può arrivare in ritardo).
+    leads: isCurrentRange ? payload.periods[period].leads : sum("leads"),
     appointments: sum("appointments"),
     presented: sum("presented"),
     noShows: sum("noShows"),

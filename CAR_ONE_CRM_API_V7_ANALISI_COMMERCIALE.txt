@@ -1,7 +1,8 @@
 const LEADS_ID = '1VJwN567x7cqzZROQCLk6773YRguj3ThBBALL4vunod4';
 const SALES_ID = '1FOHWsp19vGMRbFJqZUAdMKWEI6aI1RnBjOaJq9TBtno';
 const CALENDAR_NAME = 'Car One Usato';
-const SELLERS = ['CAIRONI', 'GRANDOLINI', 'LIGUORI', 'MONACELLI', 'BORDINI'];
+const SELLERS = ['CAIRONI', 'GRANDOLINI', 'LIGUORI', 'MONACELLI', 'BORDINI', 'PAGLIARA'];
+// Mesi chiusi: Foglio1 non va inserito qui, perché contiene sempre il mese corrente.
 const LEAD_HISTORY_SHEETS = [
   { name: 'Giugno', year: 2025, month: 6 },
   { name: 'Luglio', year: 2025, month: 7 },
@@ -16,7 +17,7 @@ const LEAD_HISTORY_SHEETS = [
   { name: 'apr 26', year: 2026, month: 4 },
   { name: 'maggio 26', year: 2026, month: 5 },
   { name: 'Giugno 26', year: 2026, month: 6 },
-  { name: 'Foglio1', year: 2026, month: 7 }
+  { name: 'Luglio 2026', year: 2026, month: 7 }
 ];
 
 function doGet(e) {
@@ -44,11 +45,11 @@ function buildDashboard_() {
   const calendarEnd = upcomingEnd > monthEnd ? upcomingEnd : monthEnd;
 
   const leadRows = readLeads_();
-  const leadHistory = readLeadHistory_();
+  const leadHistory = mergeCurrentLeadHistory_(readLeadHistory_(now), leadRows, now);
   const leadAppointments = readLeadAppointments_();
   const quotes = readQuotes_();
   const officialSales = readOfficialSales_();
-  const projectionSales = readProjectionSales_();
+  const projectionSales = readProjectionSales_(now);
   const actualProjectionSales = projectionSales.filter(function (sale) {
     return sale.date <= now;
   });
@@ -99,7 +100,7 @@ function buildDashboard_() {
 
   return {
     source: 'google-live',
-    apiVersion: '2026-07-28-data-reconciliation-v10',
+    apiVersion: '2026-08-06-dynamic-current-leads-v14',
     lastUpdated: now.toISOString(),
     contractData: {
       currentPeriodSource: "PROIEZ. REDDITIVITA'",
@@ -178,10 +179,39 @@ function agendaItem_(item) {
 
 function readLeads_() {
   const sheet = SpreadsheetApp.openById(LEADS_ID).getSheetByName('Foglio1');
-  const values = sheet.getRange('A2:G').getValues();
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 7).getValues();
   return values.map(function (row) {
-    return { date: parseDate_(row[0]), source: String(row[5] || ''), city: String(row[6] || '') };
+    const source = String(row[5] || '');
+    return {
+      date: parseDate_(row[0]),
+      source: source,
+      channel: normalizeSource_(source),
+      city: cleanLeadCity_(row[6]),
+      client: String(row[1] || '').trim(),
+      phone: normalizePhone_(row[4])
+    };
   }).filter(function (row) { return row.date !== null; });
+}
+
+function mergeCurrentLeadHistory_(history, currentRows, referenceDate) {
+  const currentYear = referenceDate.getFullYear();
+  const currentMonth = referenceDate.getMonth() + 1;
+  const closedMonths = history.filter(function (row) {
+    return row.date.getFullYear() !== currentYear || row.date.getMonth() + 1 !== currentMonth;
+  });
+  const currentMonthRows = currentRows.filter(function (row) {
+    return row.date.getFullYear() === currentYear && row.date.getMonth() + 1 === currentMonth;
+  }).map(function (row) {
+    return {
+      date: row.date,
+      channel: row.channel,
+      city: row.city,
+      client: row.client,
+      phone: row.phone
+    };
+  });
+  return closedMonths.concat(currentMonthRows);
 }
 
 function readQuotes_() {
@@ -201,11 +231,13 @@ function readQuotes_() {
   }).filter(function (quote) { return quote.date !== null; });
 }
 
-function readLeadHistory_() {
+function readLeadHistory_(referenceDate) {
   const spreadsheet = SpreadsheetApp.openById(LEADS_ID);
   const seen = {};
   const result = [];
-  LEAD_HISTORY_SHEETS.forEach(function (source) {
+  const currentDate = referenceDate || new Date();
+  const sources = leadHistorySources_(spreadsheet, currentDate);
+  sources.forEach(function (source) {
     const sheet = spreadsheet.getSheetByName(source.name);
     if (!sheet || sheet.getLastRow() < 1) return;
     const rows = sheet.getRange(1, 1, sheet.getLastRow(), 7).getValues();
@@ -227,6 +259,40 @@ function readLeadHistory_() {
     });
   });
   return result;
+}
+
+function leadHistorySources_(spreadsheet, currentDate) {
+  const currentYear = currentDate.getFullYear();
+  const currentMonth = currentDate.getMonth() + 1;
+  const sources = LEAD_HISTORY_SHEETS.slice();
+  const seen = {};
+  sources.forEach(function (source) {
+    seen[[source.name, source.year, source.month].join('|')] = true;
+  });
+
+  // Riconosce automaticamente i futuri archivi, per esempio "Agosto 2026".
+  spreadsheet.getSheets().forEach(function (sheet) {
+    const parsed = parseLeadArchiveName_(sheet.getName());
+    if (!parsed) return;
+    if (parsed.year === currentYear && parsed.month === currentMonth) return;
+    const key = [sheet.getName(), parsed.year, parsed.month].join('|');
+    if (seen[key]) return;
+    seen[key] = true;
+    sources.push({ name: sheet.getName(), year: parsed.year, month: parsed.month });
+  });
+
+  // Foglio1 viene letto separatamente come fonte diretta del mese corrente.
+  return sources;
+}
+
+function parseLeadArchiveName_(value) {
+  const normalized = String(value || '').trim().toLowerCase().replace(/[._-]+/g, ' ').replace(/\s+/g, ' ');
+  const match = normalized.match(/^(gen(?:naio)?|feb(?:braio)?|mar(?:zo)?|apr(?:ile)?|mag(?:gio)?|giu(?:gno)?|lug(?:lio)?|ago(?:sto)?|set(?:tembre)?|ott(?:obre)?|nov(?:embre)?|dic(?:embre)?)\s*(\d{2}|\d{4})$/);
+  if (!match) return null;
+  const months = { gen: 1, feb: 2, mar: 3, apr: 4, mag: 5, giu: 6, lug: 7, ago: 8, set: 9, ott: 10, nov: 11, dic: 12 };
+  const month = months[match[1].slice(0, 3)];
+  const rawYear = Number(match[2]);
+  return { year: rawYear < 100 ? 2000 + rawYear : rawYear, month: month };
 }
 
 function readLeadAppointments_() {
@@ -530,34 +596,43 @@ function readSalesSheet_(sheet, company, hasOrigin) {
   }).filter(function (sale) { return sale.date !== null; });
 }
 
-function readProjectionSales_() {
+function readProjectionSales_(referenceDate) {
   const sheet = SpreadsheetApp.openById(SALES_ID).getSheetByName("PROIEZ. REDDITIVITA'");
   if (!sheet || sheet.getLastRow() < 2) return [];
   const rows = sheet.getRange(2, 2, sheet.getLastRow() - 1, 10).getValues();
+  const monthStart = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1);
+  const monthEnd = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 1);
   const result = [];
-  let started = false;
+  let currentBlockStarted = false;
   for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i];
     const date = parseDate_(row[0]);
     if (!date) {
-      if (started) break;
+      if (currentBlockStarted) break;
       continue;
     }
-    started = true;
-    const seller = normalizeHistorySeller_(row[4]);
+    if (!currentBlockStarted) {
+      if (!inRange_(date, monthStart, monthEnd)) continue;
+      currentBlockStarted = true;
+    }
+    const rawSeller = String(row[4] || '').trim();
     const vehicle = String(row[2] || '').trim();
-    const plate = String(row[3] || '').trim();
-    if (SELLERS.indexOf(seller) < 0 || !vehicle || !plate) continue;
+    if (!rawSeller || !vehicle) continue;
+    const normalizedSeller = normalizeHistorySeller_(rawSeller);
+    const seller = SELLERS.indexOf(normalizedSeller) >= 0 ? normalizedSeller : 'ALTRI';
+    const effectiveDate = inRange_(date, monthStart, monthEnd)
+      ? date
+      : new Date(referenceDate.getFullYear(), referenceDate.getMonth(), Math.min(date.getDate(), 28));
     const property = String(row[5] || '').trim().toUpperCase();
     const company = property.indexOf('AD') >= 0 ? 'AD Motor' : 'Car One';
     result.push({
-      date: date,
+      date: effectiveDate,
       client: String(row[1] || '').trim(),
       seller: seller,
       company: company,
       origin: normalizeContractOrigin_(row[6]),
       revenue: parseAmount_(row[9]),
-      key: saleKey_(date, row[1], row[2], seller, company)
+      key: saleKey_(effectiveDate, row[1], row[2], seller, company)
     });
   }
   return result;
@@ -677,13 +752,13 @@ function buildWeeklyHistory_(apps, quotes, sales, firstWeekStart, weeks) {
 function parseDate_(value) {
   if (value instanceof Date && !isNaN(value.getTime())) return value;
   if (!value) return null;
-  const iso = new Date(String(value));
-  if (!isNaN(iso.getTime())) return iso;
   const match = String(value).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
   if (match) {
     const parsed = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]), Number(match[4] || 0), Number(match[5] || 0));
     return isNaN(parsed.getTime()) ? null : parsed;
   }
+  const iso = new Date(String(value));
+  if (!isNaN(iso.getTime())) return iso;
   return null;
 }
 
