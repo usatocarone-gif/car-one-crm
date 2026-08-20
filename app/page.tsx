@@ -32,6 +32,12 @@ function comparisonDelta(value: number, previous: number) {
   return previous ? `${value >= previous ? "+" : ""}${formatNumber((value / previous - 1) * 100)}%` : "—";
 }
 
+function isLeadContract(item: ContractHistoryItem) {
+  const origin = item.origin.toLowerCase();
+  return ["lead", "social", "facebook", "instagram", "tiktok", "sito", "autoscout", "a24", "bdc"]
+    .some((value) => origin.includes(value));
+}
+
 function YoYComparison({ rows, title = "Confronto con lo stesso mese dell’anno scorso" }: { rows: Array<{ label: string; current: number; previous: number; format?: "number" | "currency" | "percentage" }>; title?: string }) {
   return <section className="comparison-panel"><header><div><h3>{title}</h3><p>Periodo selezionato confrontato con lo stesso periodo dell’anno precedente</p></div><TrendingUp size={18} /></header><div className="comparison-cards">
     {rows.map((row) => {
@@ -51,11 +57,11 @@ function Metric({ label, value, primary, secondary }: { label: string; value: st
   return <article className="metric-card"><span>{label}</span><strong>{value}</strong><footer><b>{primary}</b><small>{secondary}</small></footer></article>;
 }
 
-function GoalPanel({ data }: { data: DashboardPeriod }) {
+function SalesPulse({ data, comparison }: { data: DashboardPeriod; comparison: BusinessMonthComparison }) {
   const attainment = data.target ? Math.min(100, (data.contracts / data.target) * 100) : 0;
   const pace = data.expectedToDate ? (data.contracts / data.expectedToDate) * 100 : null;
-  return <section className="panel goal-panel">
-    <header><div><h3>Obiettivo e ritmo</h3><p>{data.target ? `Target ${data.target} contratti` : "Nessun target giornaliero"}</p></div><Target size={19} /></header>
+  return <section className="panel goal-panel sales-pulse">
+    <header><div><span className="section-kicker sales">Vendite complessive</span><h3>Obiettivo, ritmo e forecast</h3><p>{data.target ? `Target ${data.target} contratti` : "Nessun target per il giorno selezionato"}</p></div><Target size={19} /></header>
     {data.target ? <>
       <div className="goal-big"><strong>{data.contracts}</strong><span>/ {data.target}</span></div>
       <div className="progress"><i style={{ width: `${attainment}%` }} /></div>
@@ -66,20 +72,38 @@ function GoalPanel({ data }: { data: DashboardPeriod }) {
         <div><span>Necessari/giorno</span><strong>{data.requiredPerDay ? formatNumber(data.requiredPerDay) : "—"}</strong></div>
       </div>
     </> : <div className="empty-compact"><Gauge size={24} /><span>La giornata contribuisce automaticamente agli obiettivi settimanali e mensili.</span></div>}
+    <CompactComparison title={comparison.label} tone="sales" rows={[
+      { label: "Preventivi", current: comparison.current.quotes, previous: comparison.previous.quotes },
+      { label: "Contratti", current: comparison.current.contracts, previous: comparison.previous.contracts },
+      { label: "Conversione", current: comparison.current.conversion, previous: comparison.previous.conversion, percentage: true },
+    ]} />
   </section>;
 }
 
-function Pipeline({ data }: { data: DashboardPeriod }) {
+function SocialFunnel({ data, leadContracts, comparison }: { data: DashboardPeriod; leadContracts: number; comparison: BusinessMonthComparison }) {
   const rows = [
-    ["Lead", data.leads, 100],
+    ["Lead digitali", data.leads, 100],
     ["Appuntamenti", data.appointments, data.leads ? data.appointments / data.leads * 100 : 0],
-    ["Presentati", data.presented, data.leads ? data.presented / data.leads * 100 : 0],
-    ["Preventivi", data.quotes ?? 0, data.leads ? (data.quotes ?? 0) / data.leads * 100 : 0],
-    ["Contratti", data.contracts, data.leads ? data.contracts / data.leads * 100 : 0],
+    ["Show", data.presented, data.leads ? data.presented / data.leads * 100 : 0],
+    ["Contratti lead", leadContracts, data.leads ? leadContracts / data.leads * 100 : 0],
   ] as const;
-  return <section className="panel pipeline"><header><div><h3>Pipeline commerciale</h3><p>Volumi e conversioni del periodo</p></div><Gauge size={19} /></header>
-    <div className="pipeline-list">{rows.map(([label, value, width]) => <div className="pipeline-row" key={label}><div><span>{label}</span><strong>{value}</strong></div><div className="track"><i style={{ width: `${Math.max(value ? 3 : 0, Math.min(100, width))}%` }} /></div><small>{label === "Lead" ? "Ingresso" : `${percentage(value, data.leads)} dei lead`}</small></div>)}</div>
+  return <section className="panel pipeline social-funnel"><header><div><span className="section-kicker social">Acquisizione Social / BDC</span><h3>Funnel appuntamenti da lead</h3><p>Solo il percorso generato dai canali digitali</p></div><Gauge size={19} /></header>
+    <div className="pipeline-list">{rows.map(([label, value, width], index) => <div className="pipeline-row" key={label}><div><span>{label}</span><strong>{value}</strong></div><div className="track"><i style={{ width: `${Math.max(value ? 3 : 0, Math.min(100, width))}%` }} /></div><small>{index === 0 ? "Ingresso" : `${percentage(value, data.leads)} dei lead`}</small></div>)}</div>
+    <CompactComparison title={comparison.label} tone="social" rows={[
+      { label: "Lead", current: comparison.current.leads, previous: comparison.previous.leads },
+      { label: "Appuntamenti", current: comparison.current.appointments, previous: comparison.previous.appointments },
+      { label: "Show", current: comparison.current.presented, previous: comparison.previous.presented },
+      { label: "Contratti lead", current: comparison.current.leadContracts, previous: comparison.previous.leadContracts },
+    ]} />
   </section>;
+}
+
+type CompactComparisonRow = { label: string; current: number; previous: number; percentage?: boolean };
+
+function CompactComparison({ title, tone, rows }: { title: string; tone: "social" | "sales"; rows: CompactComparisonRow[] }) {
+  return <div className={`compact-comparison ${tone}`}><header><span>{title}</span><small>stesso mese anno precedente</small></header><div>
+    {rows.map((row) => <article key={row.label}><span>{row.label}</span><strong>{row.percentage ? `${formatNumber(row.current)}%` : formatNumber(row.current)}</strong><em className={row.current >= row.previous ? "positive" : "negative"}>{comparisonDelta(row.current, row.previous)}</em><small>vs {row.percentage ? `${formatNumber(row.previous)}%` : formatNumber(row.previous)}</small></article>)}
+  </div></div>;
 }
 
 type TrendPoint = {
@@ -104,6 +128,11 @@ function mondayOf(date: Date) {
   const day = result.getDay() || 7;
   result.setDate(result.getDate() - day + 1);
   return result;
+}
+
+function weekOfMonth(date: Date) {
+  const first = new Date(date.getFullYear(), date.getMonth(), 1);
+  return Math.min(5, Math.floor((date.getDate() + ((first.getDay() + 6) % 7) - 1) / 7) + 1);
 }
 
 function addDays(date: Date, amount: number) {
@@ -214,8 +243,8 @@ function CommercialTrend({ payload, period, anchorValue }: { payload: DashboardP
   const activePoint = active === null ? null : trend.points[active];
   const labelEvery = trend.period === "week" ? 1 : Math.max(1, Math.floor(trend.points.length / 5));
 
-  return <section className="panel commercial-trend">
-    <header><div><h3>Andamento commerciale e forecast</h3><p>{trend.period === "week" ? "Settimana corrente vs precedente" : "Mese corrente vs precedente"}</p></div><div className="trend-summary"><span><b>{trend.actualAtCutoff}</b> contratti</span><span><b>{trend.quotesAtCutoff}</b> preventivi</span><span><b>{percentage(trend.actualAtCutoff, trend.quotesAtCutoff)}</b> conversione</span><span className={delta !== null && delta >= 0 ? "good" : "trend-negative"}>{delta === null ? "—" : `${delta >= 0 ? "+" : ""}${formatNumber(delta)}%`} contratti vs precedente</span><span><b>{trend.forecastEnd}</b> forecast</span></div></header>
+  return <section className="panel commercial-trend sales-trend">
+    <header><div><span className="section-kicker sales">Vendite complessive</span><h3>Andamento vendite e forecast</h3><p>Solo preventivi e contratti · {trend.period === "week" ? "settimana corrente vs precedente" : "mese corrente vs precedente"}</p></div><div className="trend-summary"><span><b>{trend.actualAtCutoff}</b> contratti</span><span><b>{trend.quotesAtCutoff}</b> preventivi</span><span><b>{percentage(trend.actualAtCutoff, trend.quotesAtCutoff)}</b> conversione</span><span className={delta !== null && delta >= 0 ? "good" : "trend-negative"}>{delta === null ? "—" : `${delta >= 0 ? "+" : ""}${formatNumber(delta)}%`} contratti vs precedente</span><span><b>{trend.forecastEnd}</b> forecast</span></div></header>
     <div className="chart-switcher"><button className={mode === "overview" ? "active" : ""} onClick={() => setMode("overview")}>Panoramica</button><button className={mode === "contracts" ? "active" : ""} onClick={() => setMode("contracts")}>Contratti</button><button className={mode === "quotes" ? "active" : ""} onClick={() => setMode("quotes")}>Preventivi</button><button className={mode === "conversion" ? "active" : ""} onClick={() => setMode("conversion")}>Conversione</button></div>
     {(payload.contractHistory ?? []).length ? <div className="trend-chart-wrap">
       <svg className="trend-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Andamento cumulato contratti, ${trend.actualAtCutoff} attuali e forecast ${trend.forecastEnd}`} onMouseLeave={() => setHovered(null)}>
@@ -347,6 +376,67 @@ function buildSelectedDashboardPeriod(payload: DashboardPayload, period: PeriodK
   };
 }
 
+type BusinessMonthMetrics = {
+  leads: number;
+  appointments: number;
+  presented: number;
+  leadContracts: number;
+  quotes: number;
+  contracts: number;
+  conversion: number;
+};
+
+type BusinessMonthComparison = {
+  label: string;
+  current: BusinessMonthMetrics;
+  previous: BusinessMonthMetrics;
+};
+
+function monthMetrics(payload: DashboardPayload, year: number, month: number, liveMonth: boolean): BusinessMonthMetrics {
+  const appointments = (payload.socialAppointmentHistory ?? []).filter((item) => item.year === year && item.month === month);
+  const contracts = (payload.contractHistory ?? []).filter((item) => item.year === year && item.month === month);
+  const quotes = (payload.quoteHistory ?? []).filter((item) => item.year === year && item.month === month).length;
+  const historyLeads = (payload.leadHistory ?? []).filter((item) => item.year === year && item.month === month).reduce((sum, item) => sum + item.leads, 0);
+  const cohortLeadContracts = (payload.channelAnalysis?.leadCohorts ?? []).filter((item) => item.year === year && item.month === month).reduce((sum, item) => sum + item.contracts, 0);
+  const totalContracts = contracts.length;
+  return {
+    leads: liveMonth ? payload.periods.month.leads : historyLeads,
+    appointments: appointments.length,
+    presented: appointments.filter((item) => item.status === "presented").length,
+    leadContracts: payload.channelAnalysis?.leadCohorts?.length ? cohortLeadContracts : contracts.filter(isLeadContract).length,
+    quotes,
+    contracts: totalContracts,
+    conversion: quotes ? totalContracts / quotes * 100 : 0,
+  };
+}
+
+function buildBusinessMonthComparison(payload: DashboardPayload, period: PeriodKey, anchorValue: string): BusinessMonthComparison {
+  const anchor = dashboardRange(period, anchorValue).start;
+  const year = anchor.getFullYear();
+  const month = anchor.getMonth() + 1;
+  const now = new Date();
+  const liveMonth = year === now.getFullYear() && month === now.getMonth() + 1;
+  return {
+    label: `${new Intl.DateTimeFormat("it-IT", { month: "long", year: "numeric" }).format(anchor)} vs ${year - 1}`,
+    current: monthMetrics(payload, year, month, liveMonth),
+    previous: monthMetrics(payload, year - 1, month, false),
+  };
+}
+
+function selectedLeadContracts(payload: DashboardPayload, period: PeriodKey, start: Date, end: Date) {
+  const contracts = (payload.contractHistory ?? []).filter((item) => {
+    const date = localContractDate(item.date);
+    return date >= start && date < end && isLeadContract(item);
+  }).length;
+  const cohorts = payload.channelAnalysis?.leadCohorts ?? [];
+  if (!cohorts.length || period === "today") return contracts;
+  const buckets = new Set<string>();
+  for (let cursor = new Date(start); cursor < end; cursor = addDays(cursor, 1)) {
+    buckets.add(`${cursor.getFullYear()}-${cursor.getMonth() + 1}-${weekOfMonth(cursor)}`);
+  }
+  return cohorts.filter((item) => buckets.has(`${item.year}-${item.month}-${item.week}`)).reduce((sum, item) => sum + item.contracts, 0);
+}
+
 function Dashboard({ payload, period, setPeriod }: { payload: DashboardPayload; period: PeriodKey; setPeriod: (period: PeriodKey) => void }) {
   const now = new Date();
   const [dayValue, setDayValue] = useState(now.toISOString().slice(0, 10));
@@ -354,21 +444,29 @@ function Dashboard({ payload, period, setPeriod }: { payload: DashboardPayload; 
   const [monthValue, setMonthValue] = useState(now.toISOString().slice(0, 7));
   const anchorValue = period === "today" ? dayValue : period === "week" ? weekValue : monthValue;
   const data = useMemo(() => buildSelectedDashboardPeriod(payload, period, anchorValue), [payload, period, anchorValue]);
+  const comparison = useMemo(() => buildBusinessMonthComparison(payload, period, anchorValue), [payload, period, anchorValue]);
+  const selectedRange = dashboardRange(period, anchorValue);
+  const leadContracts = selectedLeadContracts(payload, period, selectedRange.start, selectedRange.end);
   const resolved = data.presented + data.noShows;
   const upcomingAppointments = data.upcomingAppointments ?? 0;
   const overdueAppointments = data.overdueAppointments ?? Math.max(0, data.pendingAppointments - upcomingAppointments);
   return <>
     <header className="page-head dashboard-head"><div><p className="eyebrow">Controllo commerciale</p><h1>Buongiorno, David</h1><span>{data.subtitle}</span></div><div className="dashboard-period-control"><div className="period-tabs">{(["today", "week", "month"] as PeriodKey[]).map((key) => <button key={key} className={period === key ? "active" : ""} onClick={() => setPeriod(key)}>{key === "today" ? "Giorno" : key === "week" ? "Settimana" : "Mese"}</button>)}</div>{period === "month" ? <input aria-label="Mese dashboard" type="month" value={monthValue} onChange={(event) => setMonthValue(event.target.value)} /> : <input aria-label={period === "today" ? "Giorno dashboard" : "Settimana dashboard"} type="date" value={period === "today" ? dayValue : weekValue} onChange={(event) => period === "today" ? setDayValue(event.target.value) : setWeekValue(event.target.value)} />}</div></header>
-    <div className="metrics-grid dashboard-metrics">
-      <Metric label="Lead" value={data.leads} primary={period === "today" ? "Nuovi oggi" : `${percentage(data.appointments, data.leads)} con appuntamento`} secondary="dal Foglio Google" />
-      <Metric label="Appuntamenti" value={data.appointments} primary={`${upcomingAppointments} opportunità future`} secondary={`${overdueAppointments} passati da aggiornare`} />
-      <Metric label="Presentati" value={data.presented} primary={`${percentage(data.presented, resolved)} show rate`} secondary={`${data.noShows} no-show`} />
-      <Metric label="Preventivi" value={data.quotes ?? 0} primary={percentage(data.contracts, data.quotes ?? 0)} secondary="preventivi → contratti" />
-      <Metric label="Contratti" value={data.contracts} primary={`${data.carOneContracts} Car One`} secondary={`${data.adMotorContracts} AD Motor`} />
+    <div className="business-overview">
+      <section className="business-cluster social-cluster"><header><span>01</span><div><b>Acquisizione Social / BDC</b><small>Dal lead all’appuntamento e al contratto lead</small></div></header><div className="metrics-grid social-metrics">
+        <Metric label="Lead digitali" value={data.leads} primary={period === "today" ? "Nuovi oggi" : `${percentage(data.appointments, data.leads)} con appuntamento`} secondary="Make Leads" />
+        <Metric label="Appuntamenti da lead" value={data.appointments} primary={`${upcomingAppointments} opportunità future`} secondary={`${overdueAppointments} da aggiornare`} />
+        <Metric label="Show appuntamenti" value={data.presented} primary={`${percentage(data.presented, resolved)} show rate`} secondary={`${data.noShows} no-show`} />
+        <Metric label="Contratti da lead" value={leadContracts} primary={percentage(leadContracts, data.appointments)} secondary="appuntamento → contratto" />
+      </div></section>
+      <section className="business-cluster sales-cluster"><header><span>02</span><div><b>Vendite complessive</b><small>Tutti i canali: walk-in, conoscenze, digital e altri</small></div></header><div className="metrics-grid sales-metrics">
+        <Metric label="Preventivi totali" value={data.quotes ?? 0} primary="Tutti i canali" secondary="nessun legame automatico con gli app." />
+        <Metric label="Contratti totali" value={data.contracts} primary={`${data.carOneContracts} Car One`} secondary={`${data.adMotorContracts} AD Motor`} />
+        <Metric label="Conversione vendite" value={percentage(data.contracts, data.quotes ?? 0)} primary={`${data.contracts} su ${data.quotes ?? 0}`} secondary="preventivi → contratti" />
+      </div></section>
     </div>
-    <div className="two-columns"><GoalPanel data={data} /><Pipeline data={data} /></div>
+    <div className="business-detail-grid"><SocialFunnel data={data} leadContracts={leadContracts} comparison={comparison} /><SalesPulse data={data} comparison={comparison} /></div>
     <CommercialTrend payload={payload} period={period} anchorValue={anchorValue} />
-    <WeeklyFlowChart payload={payload} />
     <div className="two-columns lower">
       <AppointmentsPanel payload={payload} />
       <section className="panel"><header><div><h3>Performance venditori</h3><p>Contratti Car One + AD Motor</p></div><BarChart3 size={19} /></header><div className="seller-list">{data.sellers.length ? data.sellers.map((seller) => <div className="seller-row" key={seller.name}><div><b>{seller.name}</b><span>{seller.carOne} Car One · {seller.adMotor} AD</span></div><strong>{seller.contracts}</strong><div className="track"><i style={{ width: `${Math.max(8, seller.contracts / Math.max(...data.sellers.map((s) => s.contracts)) * 100)}%` }} /></div></div>) : <div className="empty-compact">I risultati venditore sono disponibili nelle viste settimanale e mensile.</div>}</div></section>
@@ -865,7 +963,6 @@ function SellersView({ payload }: { payload: DashboardPayload }) {
   const targetYear = Number(year);
   const apps = appointmentHistory.filter((item) => item.year === targetYear && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter));
   const sales = contracts.filter((item) => item.year === targetYear && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter));
-  const isLeadContract = (item: ContractHistoryItem) => ["lead", "social", "facebook", "instagram", "tiktok", "sito", "autoscout"].some((value) => item.origin.toLowerCase().includes(value));
   const previousApps = appointmentHistory.filter((item) => item.year === targetYear - 1 && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter));
   const previousSales = contracts.filter((item) => item.year === targetYear - 1 && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter));
   const totals = { appointments: apps.length, presented: apps.filter((item) => item.status === "presented").length, noShows: apps.filter((item) => item.status === "no-show").length, contracts: sales.length };
