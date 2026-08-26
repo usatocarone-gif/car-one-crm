@@ -38,6 +38,12 @@ function isLeadContract(item: ContractHistoryItem) {
     .some((value) => origin.includes(value));
 }
 
+function isLeadQuote(item: QuoteHistoryItem) {
+  const source = `${item.source} ${item.feedback} ${item.outcome}`.toLowerCase();
+  return ["lead", "social", "facebook", "instagram", "tiktok", "sito", "autoscout", "a24", "bdc"]
+    .some((value) => source.includes(value));
+}
+
 function YoYComparison({ rows, title = "Confronto con lo stesso mese dell’anno scorso" }: { rows: Array<{ label: string; current: number; previous: number; format?: "number" | "currency" | "percentage" }>; title?: string }) {
   return <section className="comparison-panel"><header><div><h3>{title}</h3><p>Periodo selezionato confrontato con lo stesso periodo dell’anno precedente</p></div><TrendingUp size={18} /></header><div className="comparison-cards">
     {rows.map((row) => {
@@ -133,6 +139,15 @@ function mondayOf(date: Date) {
 function weekOfMonth(date: Date) {
   const first = new Date(date.getFullYear(), date.getMonth(), 1);
   return Math.min(5, Math.floor((date.getDate() + ((first.getDay() + 6) % 7) - 1) / 7) + 1);
+}
+
+function weekLabel(year: number, month: number, week: number) {
+  const dates: number[] = [];
+  const end = new Date(year, month, 0).getDate();
+  for (let day = 1; day <= end; day += 1) {
+    if (weekOfMonth(new Date(year, month - 1, day)) === week) dates.push(day);
+  }
+  return dates.length ? `S${week} · ${dates[0]}–${dates[dates.length - 1]}` : `S${week}`;
 }
 
 function addDays(date: Date, amount: number) {
@@ -702,6 +717,51 @@ function sumSocialAppointments(items: SocialAppointmentHistoryItem[], key: (item
   return [...result.entries()].sort((a, b) => b[1] - a[1]);
 }
 
+function AppointmentForecastChart({ items, previousItems, year, month }: { items: SocialAppointmentHistoryItem[]; previousItems: SocialAppointmentHistoryItem[]; year: number; month: number }) {
+  const now = new Date();
+  const start = new Date(year, month - 1, 1);
+  const end = new Date(year, month, 1);
+  const days: Date[] = [];
+  for (let cursor = start; cursor < end; cursor = addDays(cursor, 1)) days.push(cursor);
+  const daily = days.map((date) => items.filter((item) => sameCalendarDay(localContractDate(item.date), date)).length);
+  const previousDaily = days.map((date) => previousItems.filter((item) => {
+    const previousDate = localContractDate(item.date);
+    return previousDate.getMonth() === date.getMonth() && previousDate.getDate() === date.getDate();
+  }).length);
+  const cumulative = (values: number[]) => values.map((_, index) => values.slice(0, index + 1).reduce((sum, value) => sum + value, 0));
+  const actualCumulative = cumulative(daily);
+  const previousCumulative = cumulative(previousDaily);
+  const cutoffIndex = now >= end ? days.length - 1 : now < start ? 0 : Math.max(0, days.findIndex((date) => sameCalendarDay(date, now)));
+  const totalSellingDays = sellingDaysThrough(start, addDays(end, -1));
+  const elapsedSellingDays = Math.max(1, sellingDaysThrough(start, days[cutoffIndex]));
+  const occurred = actualCumulative[cutoffIndex] ?? 0;
+  const scheduled = items.length;
+  const paceForecast = now >= end ? scheduled : Math.round(occurred / elapsedSellingDays * totalSellingDays);
+  const forecastEnd = Math.max(scheduled, paceForecast);
+  const resolved = items.filter((item) => item.status !== "pending" && localContractDate(item.date) <= now);
+  const shown = resolved.filter((item) => item.status === "presented").length;
+  const projectedShows = resolved.length ? Math.round(forecastEnd * shown / resolved.length) : 0;
+  const width = 720; const height = 250; const padding = { left: 38, right: 18, top: 18, bottom: 34 };
+  const ceiling = Math.max(10, Math.ceil(Math.max(forecastEnd, scheduled, previousCumulative.at(-1) ?? 0) / 10) * 10);
+  const x = (index: number) => padding.left + index / Math.max(1, days.length - 1) * (width - padding.left - padding.right);
+  const y = (value: number) => padding.top + (1 - value / ceiling) * (height - padding.top - padding.bottom);
+  const actualPoints = days.slice(0, Math.max(cutoffIndex + 1, days.findLastIndex((_, index) => daily[index] > 0) + 1)).map((_, index) => `${x(index)},${y(actualCumulative[index] ?? 0)}`).join(" ");
+  const previousPoints = days.map((_, index) => `${x(index)},${y(previousCumulative[index] ?? 0)}`).join(" ");
+  const forecastPoints = days.slice(cutoffIndex).map((date, offset) => {
+    const index = cutoffIndex + offset;
+    const sellingToDate = sellingDaysThrough(start, date);
+    const value = occurred + Math.max(0, sellingToDate - elapsedSellingDays) * ((forecastEnd - occurred) / Math.max(1, totalSellingDays - elapsedSellingDays));
+    return `${x(index)},${y(value)}`;
+  }).join(" ");
+  return <section className="panel commercial-trend appointment-forecast"><header><div><h3>Andamento appuntamenti e forecast</h3><p>{MONTHS[month - 1]} {year} · gli appuntamenti futuri già fissati sono inclusi come opportunità</p></div><div className="trend-summary"><span><b>{scheduled}</b> fissati</span><span><b>{forecastEnd}</b> forecast</span><span><b>{projectedShows}</b> show attesi</span><span><b>{percentage(shown, resolved.length)}</b> show rate</span></div></header>
+    <div className="trend-chart-wrap"><svg className="trend-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Appuntamenti ${scheduled}, forecast ${forecastEnd}`}>
+      {[0, .25, .5, .75, 1].map((ratio) => { const value = ceiling * ratio; return <g key={ratio}><line x1={padding.left} x2={width - padding.right} y1={y(value)} y2={y(value)} /><text x={padding.left - 8} y={y(value) + 4}>{Math.round(value)}</text></g>; })}
+      <polyline className="trend-line previous" points={previousPoints} /><polyline className="trend-line appointments" points={actualPoints} /><polyline className="trend-line appointment-forecast-line" points={forecastPoints} />
+      {days.map((date, index) => index % 5 === 0 || index === days.length - 1 ? <text className="trend-x-label" x={x(index)} y={height - 9} key={date.toISOString()}>{date.getDate()}</text> : null)}
+    </svg></div><div className="trend-legend"><span><i className="appointments" />Appuntamenti fissati</span><span><i className="appointment-forecast-key" />Forecast</span><span><i className="previous" />Stesso mese anno scorso</span></div>
+  </section>;
+}
+
 function SocialAppointmentsView({ payload }: { payload: DashboardPayload }) {
   const history = payload.socialAppointmentHistory ?? [];
   const now = new Date();
@@ -720,17 +780,36 @@ function SocialAppointmentsView({ payload }: { payload: DashboardPayload }) {
     (seller === "all" || item.seller === seller) &&
     (channel === "all" || item.channel === channel);
   const filtered = history.filter((item) => filter(item));
+  const leadCohorts = payload.channelAnalysis?.leadCohorts ?? [];
+  const filteredLeadCohorts = leadCohorts.filter((item) =>
+    (year === "all" || item.year === Number(year)) &&
+    (month === "all" || item.month === Number(month)) &&
+    (week === "all" || item.week === Number(week)) &&
+    (channel === "all" || item.channel === channel)
+  );
+  const cohortValue = (field: "quotes" | "contracts") => filteredLeadCohorts.reduce((sum, item) => {
+    if (seller === "all") return sum + item[field];
+    return sum + (item.sellers ?? []).filter((row) => row.name === seller).reduce((sellerSum, row) => sellerSum + row[field], 0);
+  }, 0);
+  const fallbackLeadQuotes = (payload.quoteHistory ?? []).filter((item) =>
+    (year === "all" || item.year === Number(year)) &&
+    (month === "all" || item.month === Number(month)) &&
+    (week === "all" || weekOfMonth(new Date(item.date)) === Number(week)) &&
+    (seller === "all" || item.seller === seller) && isLeadQuote(item)
+  ).length;
+  const fallbackLeadContracts = (payload.contractHistory ?? []).filter((item) =>
+    (year === "all" || item.year === Number(year)) &&
+    (month === "all" || item.month === Number(month)) &&
+    (week === "all" || weekOfMonth(localContractDate(item.date)) === Number(week)) &&
+    (seller === "all" || item.seller === seller) && isLeadContract(item)
+  ).length;
+  const leadQuotes = leadCohorts.length ? cohortValue("quotes") : fallbackLeadQuotes;
+  const leadContracts = leadCohorts.length ? cohortValue("contracts") : fallbackLeadContracts;
   const presented = filtered.filter((item) => item.status === "presented").length;
   const noShows = filtered.filter((item) => item.status === "no-show").length;
   const pending = filtered.filter((item) => item.status === "pending").length;
   const resolved = presented + noShows;
   const future = filtered.filter((item) => localContractDate(item.date) >= new Date(now.getFullYear(), now.getMonth(), now.getDate()) && item.status === "pending").length;
-  const leadContracts = (payload.contractHistory ?? []).filter((item) =>
-    (year === "all" || item.year === Number(year)) &&
-    (month === "all" || item.month === Number(month)) &&
-    (seller === "all" || item.seller === seller) &&
-    ["lead", "social", "facebook", "instagram", "tiktok", "sito web", "autoscout"].some((origin) => item.origin.toLowerCase().includes(origin))
-  ).length;
   const byWeek = [1, 2, 3, 4, 5].map((item) => [`S${item}`, filtered.filter((row) => row.week === item).length] as [string, number]);
   const bySeller = sumSocialAppointments(filtered, (item) => item.seller || "Non assegnato");
   const byChannel = sumSocialAppointments(filtered, (item) => item.channel || "Facebook");
@@ -739,6 +818,23 @@ function SocialAppointmentsView({ payload }: { payload: DashboardPayload }) {
   const previous = history.filter((item) => filter(item, comparisonYear - 1));
   const previousPresented = previous.filter((item) => item.status === "presented").length;
   const previousNoShows = previous.filter((item) => item.status === "no-show").length;
+  const effectiveYear = year === "all" ? now.getFullYear() : Number(year);
+  const effectiveMonth = month === "all" ? now.getMonth() + 1 : Number(month);
+  const forecastItems = history.filter((item) => item.year === effectiveYear && item.month === effectiveMonth && (seller === "all" || item.seller === seller) && (channel === "all" || item.channel === channel));
+  const previousForecastItems = history.filter((item) => item.year === effectiveYear - 1 && item.month === effectiveMonth && (seller === "all" || item.seller === seller) && (channel === "all" || item.channel === channel));
+  const cohortSellerRows = summarizeChannelSellers(filteredLeadCohorts, []);
+  const efficiencySellerNames = [...new Set([...filtered.map((item) => item.seller), ...cohortSellerRows.map((item) => item.name)])]
+    .filter((name) => name && (seller === "all" || name === seller)).sort();
+  const efficiencyRows = efficiencySellerNames.map((name) => {
+    const appointments = filtered.filter((item) => item.seller === name);
+    const shown = appointments.filter((item) => item.status === "presented").length;
+    const missed = appointments.filter((item) => item.status === "no-show").length;
+    const waiting = appointments.filter((item) => item.status === "pending").length;
+    const cohort = cohortSellerRows.find((item) => item.name === name);
+    const quotes = cohort?.leadQuotes ?? (payload.quoteHistory ?? []).filter((item) => item.seller === name && isLeadQuote(item) && (year === "all" || item.year === Number(year)) && (month === "all" || item.month === Number(month)) && (week === "all" || weekOfMonth(new Date(item.date)) === Number(week))).length;
+    const contracts = cohort?.leadContracts ?? (payload.contractHistory ?? []).filter((item) => item.seller === name && isLeadContract(item) && (year === "all" || item.year === Number(year)) && (month === "all" || item.month === Number(month)) && (week === "all" || weekOfMonth(localContractDate(item.date)) === Number(week))).length;
+    return { name, appointments: appointments.length, shown, missed, waiting, quotes, contracts };
+  }).sort((a, b) => (b.contracts / Math.max(1, b.quotes)) - (a.contracts / Math.max(1, a.quotes)) || b.contracts - a.contracts);
   return <>
     <header className="page-head"><div><p className="eyebrow">Funnel digitale</p><h1>Appuntamenti social</h1><span>Solo appuntamenti generati da Facebook, Instagram, TikTok, sito e canali digitali</span></div></header>
     <section className="filter-bar">
@@ -750,30 +846,26 @@ function SocialAppointmentsView({ payload }: { payload: DashboardPayload }) {
       <button onClick={() => { setYear(String(now.getFullYear())); setMonth(String(now.getMonth() + 1)); setWeek("all"); setSeller("all"); setChannel("all"); }}>Azzera filtri</button>
     </section>
     {history.length ? <>
-      <div className="metrics-grid">
+      <div className="metrics-grid social-appointment-metrics">
         <Metric label="Appuntamenti social" value={filtered.length} primary={`${future} opportunità future`} secondary="nel periodo selezionato" />
         <Metric label="Show" value={presented} primary={percentage(presented, resolved)} secondary={`${noShows} no-show`} />
         <Metric label="Da aggiornare" value={pending} primary={percentage(pending, filtered.length)} secondary="senza SI/NO nel Calendar" />
-        <Metric label="Contratti lead" value={leadContracts} primary={percentage(leadContracts, filtered.length)} secondary="efficienza appuntamento → contratto" />
+        <Metric label="Conversione lead" value={percentage(leadContracts, leadQuotes)} primary={`${leadContracts} contratti su ${leadQuotes} preventivi`} secondary="preventivo lead → contratto" />
       </div>
       <YoYComparison rows={[
         { label: "Appuntamenti social", current: filtered.length, previous: previous.length },
         { label: "Show", current: presented, previous: previousPresented },
         { label: "Show rate", current: resolved ? presented / resolved * 100 : 0, previous: previousPresented + previousNoShows ? previousPresented / (previousPresented + previousNoShows) * 100 : 0, format: "percentage" },
       ]} />
+      <AppointmentForecastChart items={forecastItems} previousItems={previousForecastItems} year={effectiveYear} month={effectiveMonth} />
       <div className="history-grid">
         <section className="panel"><header><div><h3>Settimane del mese</h3><p>Distribuzione degli appuntamenti social S1–S5</p></div><CalendarDays size={19} /></header><BarList rows={byWeek} /></section>
         <section className="panel"><header><div><h3>Efficienza per venditore</h3><p>Volume di appuntamenti social assegnati</p></div><Users size={19} /></header><BarList rows={bySeller} /></section>
         <section className="panel"><header><div><h3>Canali social</h3><p>Origine degli appuntamenti digitali</p></div><GitBranch size={19} /></header><BarList rows={byChannel} /></section>
         <section className="panel"><header><div><h3>Esito appuntamenti</h3><p>SI, NO e appuntamenti ancora da aggiornare</p></div><Gauge size={19} /></header><BarList rows={byStatus} /></section>
       </div>
-      <section className="panel table-panel social-seller-table"><header><div><h3>Show rate per venditore</h3><p>Solo appuntamenti social del periodo selezionato</p></div><BarChart3 size={19} /></header><div className="data-table"><div className="data-row data-head"><span>Venditore</span><span>App.</span><span>Show</span><span>No show</span><span>Da aggiornare</span><span>Show rate</span></div>{sellers.filter((name) => seller === "all" || name === seller).map((name) => {
-        const rows = filtered.filter((item) => item.seller === name);
-        const shown = rows.filter((item) => item.status === "presented").length;
-        const missed = rows.filter((item) => item.status === "no-show").length;
-        const waiting = rows.filter((item) => item.status === "pending").length;
-        return <div className="data-row" key={name}><b>{name}</b><strong>{rows.length}</strong><strong>{shown}</strong><strong>{missed}</strong><strong>{waiting}</strong><strong>{percentage(shown, shown + missed)}</strong></div>;
-      })}</div></section>
+      <section className="panel table-panel social-seller-table lead-efficiency-table"><header><div><h3>Efficienza lead per venditore</h3><p>Appuntamenti e show restano operativi; la conversione commerciale è sempre contratti ÷ preventivi lead</p></div><BarChart3 size={19} /></header><div className="data-table"><div className="data-row data-head"><span>Venditore</span><span>App.</span><span>Show</span><span>Show rate</span><span>Prev. lead</span><span>Contr. lead</span><span>Prev. → Contr.</span><span>App. → Contr.</span></div>{efficiencyRows.map((row) => <div className="data-row" key={row.name}><b>{row.name}</b><strong>{row.appointments}</strong><strong>{row.shown}</strong><strong className={row.shown + row.missed && row.shown / (row.shown + row.missed) >= .7 ? "good" : ""}>{percentage(row.shown, row.shown + row.missed)}</strong><strong>{row.quotes}</strong><strong>{row.contracts}</strong><strong className="conversion-primary">{percentage(row.contracts, row.quotes)}</strong><span>{percentage(row.contracts, row.appointments)}</span></div>)}<div className="data-row data-total"><b>TOTALE</b><strong>{filtered.length}</strong><strong>{presented}</strong><strong>{percentage(presented, resolved)}</strong><strong>{leadQuotes}</strong><strong>{leadContracts}</strong><strong className="conversion-primary">{percentage(leadContracts, leadQuotes)}</strong><span>{percentage(leadContracts, filtered.length)}</span></div></div></section>
+      <div className="notice"><CircleAlert size={17} /><span>I lead grezzi non vengono assegnati artificialmente a un venditore: l’attribuzione parte dall’appuntamento. La colonna <b>Prev. → Contr.</b> è il tasso di conversione; <b>App. → Contr.</b> è soltanto un indicatore operativo.</span></div>
     </> : <section className="placeholder compact"><CircleAlert size={30} /><h2>Appuntamenti social in attesa</h2><p>Incolla e distribuisci la nuova versione Apps Script per collegare Calendar ai lead social.</p></section>}
   </>;
 }
@@ -877,6 +969,22 @@ function QuoteForecastChart({ items, year, month, target }: { items: QuoteHistor
   </section>;
 }
 
+function QuoteWeeklyPanel({ quotes, contracts, year, month }: { quotes: QuoteHistoryItem[]; contracts: ContractHistoryItem[]; year: number; month: number }) {
+  const rows = [1, 2, 3, 4, 5].map((week) => {
+    const quoteCount = quotes.filter((item) => weekOfMonth(new Date(item.date)) === week).length;
+    const contractCount = contracts.filter((item) => weekOfMonth(localContractDate(item.date)) === week).length;
+    return { week, label: weekLabel(year, month, week), quotes: quoteCount, contracts: contractCount };
+  });
+  const totalQuotes = rows.reduce((sum, row) => sum + row.quotes, 0);
+  const totalContracts = rows.reduce((sum, row) => sum + row.contracts, 0);
+  const ceiling = Math.max(1, ...rows.flatMap((row) => [row.quotes, row.contracts]));
+  return <section className="panel quote-weekly-panel"><header><div><h3>Preventivi settimana per settimana</h3><p>{MONTHS[month - 1]} {year} · contratti confermati dal file Venduto</p></div><CalendarDays size={19} /></header>
+    <div className="quote-weekly-chart">{rows.map((row) => <article key={row.week}><div className="quote-weekly-bars"><i className="quotes" style={{ height: `${Math.max(row.quotes ? 5 : 0, row.quotes / ceiling * 100)}%` }} title={`${row.quotes} preventivi`} /><i className="contracts" style={{ height: `${Math.max(row.contracts ? 5 : 0, row.contracts / ceiling * 100)}%` }} title={`${row.contracts} contratti`} /></div><b>S{row.week}</b><span>{row.quotes} prev.</span><small>{percentage(row.contracts, row.quotes)}</small></article>)}</div>
+    <div className="trend-legend"><span><i className="quotes" />Preventivi</span><span><i className="actual" />Contratti</span><span><b>{percentage(totalContracts, totalQuotes)}</b> conversione totale</span></div>
+    <div className="data-table quote-weekly-table"><div className="data-row data-head"><span>Settimana</span><span>Preventivi</span><span>Contratti</span><span>Prev. → Contr.</span><span>Quota preventivi</span></div>{rows.map((row) => <div className="data-row" key={row.week}><b>{row.label}</b><strong>{row.quotes}</strong><strong>{row.contracts}</strong><strong className="conversion-primary">{percentage(row.contracts, row.quotes)}</strong><span>{percentage(row.quotes, totalQuotes)}</span></div>)}<div className="data-row data-total"><b>TOTALE MESE</b><strong>{totalQuotes}</strong><strong>{totalContracts}</strong><strong className="conversion-primary">{percentage(totalContracts, totalQuotes)}</strong><span>100%</span></div></div>
+  </section>;
+}
+
 function QuotesView({ payload }: { payload: DashboardPayload }) {
   const history = payload.quoteHistory ?? [];
   const soldContracts = payload.contractHistory ?? [];
@@ -885,15 +993,23 @@ function QuotesView({ payload }: { payload: DashboardPayload }) {
   const sellers = [...new Set(history.map((item) => item.seller))].filter(Boolean).sort();
   const [year, setYear] = useState(years.includes(now.getFullYear()) ? String(now.getFullYear()) : "all");
   const [month, setMonth] = useState(history.some((item) => item.year === now.getFullYear() && item.month === now.getMonth() + 1) ? String(now.getMonth() + 1) : "all");
+  const [week, setWeek] = useState("all");
   const [seller, setSeller] = useState("all");
   const [outcome, setOutcome] = useState("all");
   const filtered = history.filter((item) =>
     (year === "all" || item.year === Number(year)) &&
     (month === "all" || item.month === Number(month)) &&
+    (week === "all" || weekOfMonth(new Date(item.date)) === Number(week)) &&
     (seller === "all" || item.seller === seller) &&
     (outcome === "all" || quoteDisplayStatus(item, soldContracts) === outcome)
   );
-  const converted = soldContracts.filter((contract) => filtered.some((item) => quoteMatchesContract(item, contract))).length;
+  const selectedContracts = soldContracts.filter((contract) =>
+    (year === "all" || contract.year === Number(year)) &&
+    (month === "all" || contract.month === Number(month)) &&
+    (week === "all" || weekOfMonth(localContractDate(contract.date)) === Number(week)) &&
+    (seller === "all" || contract.seller === seller)
+  );
+  const converted = outcome === "all" ? selectedContracts.length : selectedContracts.filter((contract) => filtered.some((item) => quoteMatchesContract(item, contract))).length;
   const followUps = filtered.filter((item) => ["Da risentire", "In contatto"].includes(quoteOutcome(item))).length;
   const withVehicle = filtered.filter((item) => item.vehicle.trim()).length;
   const bySeller = sumQuotes(filtered, (item) => item.seller || "Non assegnato");
@@ -910,8 +1026,10 @@ function QuotesView({ payload }: { payload: DashboardPayload }) {
   const effectiveMonth = month === "all" ? now.getMonth() + 1 : Number(month);
   const goalItems = history.filter((item) => item.year === effectiveYear && item.month === effectiveMonth && (seller === "all" || item.seller === seller));
   const previousItems = history.filter((item) => item.year === effectiveYear - 1 && item.month === effectiveMonth && (seller === "all" || item.seller === seller));
-  const goalConverted = soldContracts.filter((contract) => goalItems.some((item) => quoteMatchesContract(item, contract))).length;
-  const previousConverted = soldContracts.filter((contract) => previousItems.some((item) => quoteMatchesContract(item, contract))).length;
+  const goalConvertedContracts = soldContracts.filter((contract) => contract.year === effectiveYear && contract.month === effectiveMonth && (seller === "all" || contract.seller === seller));
+  const previousConvertedContracts = soldContracts.filter((contract) => contract.year === effectiveYear - 1 && contract.month === effectiveMonth && (seller === "all" || contract.seller === seller));
+  const goalConverted = goalConvertedContracts.length;
+  const previousConverted = previousConvertedContracts.length;
   const goalSellers = SALES_TEAM;
   const quoteTarget = seller === "all" ? SALES_TEAM.length * 40 : 40;
 
@@ -920,15 +1038,17 @@ function QuotesView({ payload }: { payload: DashboardPayload }) {
     <section className="filter-bar">
       <label><span>Anno</span><select value={year} onChange={(event) => setYear(event.target.value)}><option value="all">Tutti</option>{years.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
       <label><span>Mese</span><select value={month} onChange={(event) => setMonth(event.target.value)}><option value="all">Tutti</option>{MONTHS.map((item, index) => <option value={index + 1} key={item}>{item}</option>)}</select></label>
+      <label><span>Settimana</span><select value={week} onChange={(event) => setWeek(event.target.value)}><option value="all">Tutte</option>{[1, 2, 3, 4, 5].map((item) => <option value={item} key={item}>S{item}</option>)}</select></label>
       <label><span>Venditore</span><select value={seller} onChange={(event) => setSeller(event.target.value)}><option value="all">Tutti</option>{sellers.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
       <label><span>Esito</span><select value={outcome} onChange={(event) => setOutcome(event.target.value)}><option value="all">Tutti</option>{["Venduto", "Contratto da verificare", "Da risentire", "In contatto", "Perso / rimandato", "Esito libero", "Senza esito"].map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
-      <button onClick={() => { setYear("all"); setMonth("all"); setSeller("all"); setOutcome("all"); }}>Azzera filtri</button>
+      <button onClick={() => { setYear(String(now.getFullYear())); setMonth(String(now.getMonth() + 1)); setWeek("all"); setSeller("all"); setOutcome("all"); }}>Azzera filtri</button>
     </section>
     {history.length ? <>
-      <div className="metrics-grid">
+      <div className="metrics-grid quotes-metrics">
         <Metric label="Preventivi" value={filtered.length} primary={`${bySeller.length} venditori`} secondary="nel periodo filtrato" />
         <Metric label="Da lavorare" value={followUps} primary={percentage(followUps, filtered.length)} secondary="da risentire o in contatto" />
         <Metric label="Contratti verificati" value={converted} primary={percentage(converted, filtered.length)} secondary="dal file Venduto" />
+        <Metric label="Conversione totale" value={percentage(converted, filtered.length)} primary={`${converted} contratti / ${filtered.length} preventivi`} secondary="sempre preventivi → contratti" />
         <Metric label="Richiesta descritta" value={percentage(withVehicle, filtered.length)} primary={`${withVehicle} preventivi`} secondary="utilizzabili per i cluster" />
       </div>
       <YoYComparison rows={[
@@ -938,6 +1058,7 @@ function QuotesView({ payload }: { payload: DashboardPayload }) {
       ]} />
       <div className="two-columns quote-analysis"><QuoteGoalPanel items={goalItems} sellers={goalSellers} selectedSeller={seller} year={effectiveYear} month={effectiveMonth} /><section className="panel"><header><div><h3>Preventivi per venditore</h3><p>Carico commerciale nel periodo</p></div><Users size={19} /></header><BarList rows={bySeller} /></section></div>
       <QuoteForecastChart items={goalItems} year={effectiveYear} month={effectiveMonth} target={quoteTarget} />
+      <QuoteWeeklyPanel quotes={goalItems} contracts={goalConvertedContracts} year={effectiveYear} month={effectiveMonth} />
       <div className="history-grid">
         <section className="panel"><header><div><h3>Andamento mensile</h3><p>Numero di preventivi nel tempo</p></div><TrendingUp size={19} /></header><BarList rows={byMonth} maxRows={18} /></section>
         <section className="panel"><header><div><h3>Stato delle trattative</h3><p>Follow-up, conversioni e motivi di uscita</p></div><Target size={19} /></header><BarList rows={byOutcome} /></section>
@@ -954,44 +1075,56 @@ function QuotesView({ payload }: { payload: DashboardPayload }) {
 function SellersView({ payload }: { payload: DashboardPayload }) {
   const now = new Date();
   const appointmentHistory = payload.socialAppointmentHistory ?? [];
+  const quoteHistory = payload.quoteHistory ?? [];
   const contracts = payload.contractHistory ?? [];
-  const years = [...new Set([...appointmentHistory.map((item) => item.year), ...contracts.map((item) => item.year)])].sort((a, b) => b - a);
-  const sellerNames = [...new Set([...appointmentHistory.map((item) => item.seller), ...contracts.map((item) => item.seller)])].filter(Boolean).sort();
+  const years = [...new Set([...appointmentHistory.map((item) => item.year), ...quoteHistory.map((item) => item.year), ...contracts.map((item) => item.year)])].sort((a, b) => b - a);
+  const sellerNames = [...new Set([...appointmentHistory.map((item) => item.seller), ...quoteHistory.map((item) => item.seller), ...contracts.map((item) => item.seller)])].filter(Boolean).sort();
   const [year, setYear] = useState(String(now.getFullYear()));
   const [month, setMonth] = useState(String(now.getMonth() + 1));
   const [sellerFilter, setSellerFilter] = useState("all");
   const targetYear = Number(year);
   const apps = appointmentHistory.filter((item) => item.year === targetYear && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter));
+  const quotes = quoteHistory.filter((item) => item.year === targetYear && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter));
   const sales = contracts.filter((item) => item.year === targetYear && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter));
   const previousApps = appointmentHistory.filter((item) => item.year === targetYear - 1 && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter));
+  const previousQuotes = quoteHistory.filter((item) => item.year === targetYear - 1 && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter));
   const previousSales = contracts.filter((item) => item.year === targetYear - 1 && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter));
   const totals = { appointments: apps.length, presented: apps.filter((item) => item.status === "presented").length, noShows: apps.filter((item) => item.status === "no-show").length, contracts: sales.length };
   const resolved = totals.presented + totals.noShows;
+  const leadCohorts = (payload.channelAnalysis?.leadCohorts ?? []).filter((item) => item.year === targetYear && (month === "all" || item.month === Number(month)));
+  const leadCohortSellers = summarizeChannelSellers(leadCohorts, []);
   const rows = sellerNames.filter((name) => sellerFilter === "all" || name === sellerFilter).map((name) => {
     const sellerApps = apps.filter((item) => item.seller === name);
     const presented = sellerApps.filter((item) => item.status === "presented").length;
     const noShows = sellerApps.filter((item) => item.status === "no-show").length;
-    const leadContracts = sales.filter((item) => item.seller === name && isLeadContract(item)).length;
-    return { name, appointments: sellerApps.length, presented, noShows, pending: sellerApps.length - presented - noShows, leadContracts, contracts: sales.filter((item) => item.seller === name).length };
-  }).sort((a, b) => b.leadContracts - a.leadContracts || b.appointments - a.appointments);
+    const cohort = leadCohortSellers.find((item) => item.name === name);
+    const leadQuotes = cohort?.leadQuotes ?? quotes.filter((item) => item.seller === name && isLeadQuote(item)).length;
+    const leadContracts = cohort?.leadContracts ?? sales.filter((item) => item.seller === name && isLeadContract(item)).length;
+    return { name, appointments: sellerApps.length, presented, noShows, pending: sellerApps.length - presented - noShows, leadQuotes, leadContracts, quotes: quotes.filter((item) => item.seller === name).length, contracts: sales.filter((item) => item.seller === name).length };
+  }).sort((a, b) => (b.leadContracts / Math.max(1, b.leadQuotes)) - (a.leadContracts / Math.max(1, a.leadQuotes)) || b.leadContracts - a.leadContracts);
   const top = rows[0];
+  const totalLeadQuotes = rows.reduce((sum, row) => sum + row.leadQuotes, 0);
+  const totalLeadContracts = rows.reduce((sum, row) => sum + row.leadContracts, 0);
   return <>
     <header className="page-head"><div><p className="eyebrow">Performance commerciale</p><h1>Conversione venditori</h1><span>Appuntamenti social + contratti confermati dal file Venduto</span></div></header>
     <section className="filter-bar"><label><span>Anno</span><select value={year} onChange={(event) => setYear(event.target.value)}>{years.map((item) => <option value={item} key={item}>{item}</option>)}</select></label><label><span>Mese</span><select value={month} onChange={(event) => setMonth(event.target.value)}><option value="all">Tutti</option>{MONTHS.map((item, index) => <option value={index + 1} key={item}>{item}</option>)}</select></label><label><span>Venditore</span><select value={sellerFilter} onChange={(event) => setSellerFilter(event.target.value)}><option value="all">Tutti</option>{sellerNames.map((item) => <option value={item} key={item}>{item}</option>)}</select></label></section>
-    <div className="metrics-grid">
-      <Metric label="Appuntamenti social" value={totals.appointments} primary={`${apps.filter((item) => item.status === "pending").length} da aggiornare`} secondary="con venditore riconosciuto" />
+    <div className="metrics-grid seller-metrics">
+      <Metric label="Preventivi totali" value={quotes.length} primary={`${sales.length} contratti`} secondary="tutti i canali" />
+      <Metric label="Conversione totale" value={percentage(sales.length, quotes.length)} primary={`${sales.length} contratti / ${quotes.length} preventivi`} secondary="sempre preventivi → contratti" />
+      <Metric label="Appuntamenti social" value={totals.appointments} primary={`${apps.filter((item) => item.status === "pending").length} da aggiornare`} secondary="indicatore BDC separato" />
       <Metric label="Presentati" value={totals.presented} primary={`${percentage(totals.presented, resolved)} show rate`} secondary={`${totals.noShows} no-show`} />
-      <Metric label="Contratti lead" value={sales.filter(isLeadContract).length} primary={percentage(sales.filter(isLeadContract).length, totals.appointments)} secondary="appuntamento social → contratto" />
-      <Metric label="Top efficienza" value={top?.name ?? "—"} primary={top ? `${top.leadContracts} contratti lead` : "Nessun dato"} secondary="nel periodo selezionato" />
+      <Metric label="Top conversione lead" value={top?.name ?? "—"} primary={top ? `${percentage(top.leadContracts, top.leadQuotes)} · ${top.leadContracts}/${top.leadQuotes}` : "Nessun dato"} secondary="preventivi lead → contratti" />
     </div>
     <YoYComparison rows={[
       { label: "Appuntamenti social", current: apps.length, previous: previousApps.length },
       { label: "Show", current: totals.presented, previous: previousApps.filter((item) => item.status === "presented").length },
+      { label: "Preventivi", current: quotes.length, previous: previousQuotes.length },
       { label: "Contratti lead", current: sales.filter(isLeadContract).length, previous: previousSales.filter(isLeadContract).length },
+      { label: "Conversione totale", current: quotes.length ? sales.length / quotes.length * 100 : 0, previous: previousQuotes.length ? previousSales.length / previousQuotes.length * 100 : 0, format: "percentage" },
     ]} />
     <section className="panel table-panel">
-      <header><div><h3>Efficienza lead per venditore</h3><p>Dal primo appuntamento social al contratto finale</p></div><BarChart3 size={19} /></header>
-      <div className="data-table seller-table"><div className="data-row data-head"><span>Venditore</span><span>App. social</span><span>Show</span><span>Show rate</span><span>Contratti lead</span><span>App. → Contr.</span></div>{rows.map((seller) => <div className="data-row" key={seller.name}><b>{seller.name}</b><strong>{seller.appointments}</strong><strong>{seller.presented}</strong><strong className={seller.presented + seller.noShows && seller.presented / (seller.presented + seller.noShows) >= .7 ? "good" : ""}>{percentage(seller.presented, seller.presented + seller.noShows)}</strong><strong>{seller.leadContracts}</strong><strong>{percentage(seller.leadContracts, seller.appointments)}</strong></div>)}</div>
+      <header><div><h3>Efficienza lead per venditore</h3><p>La conversione è sul preventivo; appuntamenti e show misurano il lavoro BDC</p></div><BarChart3 size={19} /></header>
+      <div className="data-table seller-lead-efficiency"><div className="data-row data-head"><span>Venditore</span><span>App. social</span><span>Show</span><span>Show rate</span><span>Prev. lead</span><span>Contr. lead</span><span>Prev. → Contr.</span><span>App. → Contr.</span></div>{rows.map((seller) => <div className="data-row" key={seller.name}><b>{seller.name}</b><strong>{seller.appointments}</strong><strong>{seller.presented}</strong><strong className={seller.presented + seller.noShows && seller.presented / (seller.presented + seller.noShows) >= .7 ? "good" : ""}>{percentage(seller.presented, seller.presented + seller.noShows)}</strong><strong>{seller.leadQuotes}</strong><strong>{seller.leadContracts}</strong><strong className="conversion-primary">{percentage(seller.leadContracts, seller.leadQuotes)}</strong><span>{percentage(seller.leadContracts, seller.appointments)}</span></div>)}<div className="data-row data-total"><b>TOTALE</b><strong>{totals.appointments}</strong><strong>{totals.presented}</strong><strong>{percentage(totals.presented, resolved)}</strong><strong>{totalLeadQuotes}</strong><strong>{totalLeadContracts}</strong><strong className="conversion-primary">{percentage(totalLeadContracts, totalLeadQuotes)}</strong><span>{percentage(totalLeadContracts, totals.appointments)}</span></div></div>
     </section>
   </>;
 }
