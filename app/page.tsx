@@ -44,7 +44,7 @@ function isLeadQuote(item: QuoteHistoryItem) {
     .some((value) => source.includes(value));
 }
 
-function YoYComparison({ rows, title = "Confronto con lo stesso mese dell’anno scorso" }: { rows: Array<{ label: string; current: number; previous: number; format?: "number" | "currency" | "percentage" }>; title?: string }) {
+function YoYComparison({ rows, title = "Confronto con lo stesso periodo dell’anno scorso" }: { rows: Array<{ label: string; current: number; previous: number; format?: "number" | "currency" | "percentage" }>; title?: string }) {
   return <section className="comparison-panel"><header><div><h3>{title}</h3><p>Periodo selezionato confrontato con lo stesso periodo dell’anno precedente</p></div><TrendingUp size={18} /></header><div className="comparison-cards">
     {rows.map((row) => {
       const display = (value: number) => row.format === "currency" ? formatCurrency(value) : row.format === "percentage" ? `${formatNumber(value)}%` : formatNumber(value);
@@ -107,7 +107,7 @@ function SocialFunnel({ data, leadContracts, comparison }: { data: DashboardPeri
 type CompactComparisonRow = { label: string; current: number; previous: number; percentage?: boolean };
 
 function CompactComparison({ title, tone, rows }: { title: string; tone: "social" | "sales"; rows: CompactComparisonRow[] }) {
-  return <div className={`compact-comparison ${tone}`}><header><span>{title}</span><small>stesso mese anno precedente</small></header><div>
+  return <div className={`compact-comparison ${tone}`}><header><span>{title}</span><small>stesso periodo anno precedente</small></header><div>
     {rows.map((row) => <article key={row.label}><span>{row.label}</span><strong>{row.percentage ? `${formatNumber(row.current)}%` : formatNumber(row.current)}</strong><em className={row.current >= row.previous ? "positive" : "negative"}>{comparisonDelta(row.current, row.previous)}</em><small>vs {row.percentage ? `${formatNumber(row.previous)}%` : formatNumber(row.previous)}</small></article>)}
   </div></div>;
 }
@@ -171,9 +171,14 @@ function buildCommercialTrend(payload: DashboardPayload, selectedPeriod: PeriodK
   const now = new Date();
   const anchor = anchorValue ? dashboardRange(selectedPeriod, anchorValue).start : now;
   const currentStart = period === "week" ? mondayOf(anchor) : new Date(anchor.getFullYear(), anchor.getMonth(), 1);
-  const currentEnd = period === "week" ? addDays(currentStart, 7) : new Date(now.getFullYear(), now.getMonth() + 1, 1);
-  const previousStart = period === "week" ? addDays(currentStart, -7) : new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const previousEnd = currentStart;
+  const currentEnd = period === "week" ? addDays(currentStart, 7) : new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1);
+  // Ogni confronto temporale usa sempre lo stesso periodo dell'anno scorso.
+  // Per la settimana usiamo la settimana omologa (52 settimane prima),
+  // mantenendo lunedì-domenica; per il mese manteniamo lo stesso mese solare.
+  const previousStart = period === "week"
+    ? addDays(currentStart, -364)
+    : new Date(currentStart.getFullYear() - 1, currentStart.getMonth(), 1);
+  const previousEnd = period === "week" ? addDays(previousStart, 7) : new Date(previousStart.getFullYear(), previousStart.getMonth() + 1, 1);
   const dates: Date[] = [];
   for (let cursor = new Date(currentStart); cursor < currentEnd; cursor = addDays(cursor, 1)) dates.push(cursor);
   const contractDates = (payload.contractHistory ?? []).map((item) => localContractDate(item.date));
@@ -259,7 +264,7 @@ function CommercialTrend({ payload, period, anchorValue }: { payload: DashboardP
   const labelEvery = trend.period === "week" ? 1 : Math.max(1, Math.floor(trend.points.length / 5));
 
   return <section className="panel commercial-trend sales-trend">
-    <header><div><span className="section-kicker sales">Vendite complessive</span><h3>Andamento vendite e forecast</h3><p>Solo preventivi e contratti · {trend.period === "week" ? "settimana corrente vs precedente" : "mese corrente vs precedente"}</p></div><div className="trend-summary"><span><b>{trend.actualAtCutoff}</b> contratti</span><span><b>{trend.quotesAtCutoff}</b> preventivi</span><span><b>{percentage(trend.actualAtCutoff, trend.quotesAtCutoff)}</b> conversione</span><span className={delta !== null && delta >= 0 ? "good" : "trend-negative"}>{delta === null ? "—" : `${delta >= 0 ? "+" : ""}${formatNumber(delta)}%`} contratti vs precedente</span><span><b>{trend.forecastEnd}</b> forecast</span></div></header>
+    <header><div><span className="section-kicker sales">Vendite complessive</span><h3>Andamento vendite e forecast</h3><p>Solo preventivi e contratti · {trend.period === "week" ? "stessa settimana dell’anno scorso" : "stesso mese dell’anno scorso"}</p></div><div className="trend-summary"><span><b>{trend.actualAtCutoff}</b> contratti</span><span><b>{trend.quotesAtCutoff}</b> preventivi</span><span><b>{percentage(trend.actualAtCutoff, trend.quotesAtCutoff)}</b> conversione</span><span className={delta !== null && delta >= 0 ? "good" : "trend-negative"}>{delta === null ? "—" : `${delta >= 0 ? "+" : ""}${formatNumber(delta)}%`} contratti vs anno scorso</span><span><b>{trend.forecastEnd}</b> forecast</span></div></header>
     <div className="chart-switcher"><button className={mode === "overview" ? "active" : ""} onClick={() => setMode("overview")}>Panoramica</button><button className={mode === "contracts" ? "active" : ""} onClick={() => setMode("contracts")}>Contratti</button><button className={mode === "quotes" ? "active" : ""} onClick={() => setMode("quotes")}>Preventivi</button><button className={mode === "conversion" ? "active" : ""} onClick={() => setMode("conversion")}>Conversione</button></div>
     {(payload.contractHistory ?? []).length ? <div className="trend-chart-wrap">
       <svg className="trend-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Andamento cumulato contratti, ${trend.actualAtCutoff} attuali e forecast ${trend.forecastEnd}`} onMouseLeave={() => setHovered(null)}>
@@ -281,9 +286,9 @@ function CommercialTrend({ payload, period, anchorValue }: { payload: DashboardP
         </g>)}
         {activePoint ? <g className="trend-marker"><line x1={x(active ?? 0)} x2={x(active ?? 0)} y1={padding.top} y2={height - padding.bottom} /><circle cx={x(active ?? 0)} cy={y(mode === "quotes" ? activePoint.actualQuotes ?? 0 : mode === "conversion" ? activePoint.conversion ?? 0 : activePoint.actualContracts ?? activePoint.forecast ?? 0)} r="5" /></g> : null}
       </svg>
-      {activePoint ? <div className="trend-tooltip" style={{ left: `${Math.min(92, Math.max(8, (x(active ?? 0) / width) * 100))}%` }}><b>{activePoint.label}</b><span>Contratti {activePoint.actualContracts ?? "—"}</span><span>Preventivi {activePoint.actualQuotes ?? "—"}</span><span>Conversione {activePoint.conversion === null ? "—" : `${formatNumber(activePoint.conversion)}%`}</span><span>Contratti precedenti {formatNumber(activePoint.previousContracts)}</span><span>Preventivi precedenti {formatNumber(activePoint.previousQuotes)}</span><span>Obiettivo {activePoint.target === null ? "—" : formatNumber(activePoint.target)}</span><span>Forecast {activePoint.forecast === null ? "—" : formatNumber(activePoint.forecast)}</span></div> : null}
+      {activePoint ? <div className="trend-tooltip" style={{ left: `${Math.min(92, Math.max(8, (x(active ?? 0) / width) * 100))}%` }}><b>{activePoint.label}</b><span>Contratti {activePoint.actualContracts ?? "—"}</span><span>Preventivi {activePoint.actualQuotes ?? "—"}</span><span>Conversione {activePoint.conversion === null ? "—" : `${formatNumber(activePoint.conversion)}%`}</span><span>Contratti anno scorso {formatNumber(activePoint.previousContracts)}</span><span>Preventivi anno scorso {formatNumber(activePoint.previousQuotes)}</span><span>Obiettivo {activePoint.target === null ? "—" : formatNumber(activePoint.target)}</span><span>Forecast {activePoint.forecast === null ? "—" : formatNumber(activePoint.forecast)}</span></div> : null}
     </div> : <div className="empty-compact">Il grafico sarà disponibile quando lo storico contratti live è caricato.</div>}
-    <div className="trend-legend"><span><i className="actual" />Contratti</span><span><i className="quotes" />Preventivi</span><span><i className="forecast" />Forecast contratti</span><span><i className="target" />Ritmo obiettivo</span><span><i className="previous" />Periodo precedente</span></div>
+    <div className="trend-legend"><span><i className="actual" />Contratti</span><span><i className="quotes" />Preventivi</span><span><i className="forecast" />Forecast contratti</span><span><i className="target" />Ritmo obiettivo</span><span><i className="previous" />Stesso periodo anno scorso</span></div>
   </section>;
 }
 
@@ -935,7 +940,7 @@ function QuoteGoalPanel({ items, sellers, selectedSeller, year, month }: { items
   </section>;
 }
 
-function QuoteForecastChart({ items, year, month, target }: { items: QuoteHistoryItem[]; year: number; month: number; target: number }) {
+function QuoteForecastChart({ items, previousItems, year, month, target }: { items: QuoteHistoryItem[]; previousItems: QuoteHistoryItem[]; year: number; month: number; target: number }) {
   const now = new Date();
   const start = new Date(year, month - 1, 1);
   const end = new Date(year, month, 1);
@@ -943,16 +948,23 @@ function QuoteForecastChart({ items, year, month, target }: { items: QuoteHistor
   for (let cursor = start; cursor < end; cursor = addDays(cursor, 1)) days.push(cursor);
   const daily = days.map((date) => items.filter((item) => sameCalendarDay(new Date(item.date), date)).length);
   const cumulative = daily.map((_, index) => daily.slice(0, index + 1).reduce((sum, value) => sum + value, 0));
+  const previousDaily = days.map((date) => previousItems.filter((item) => {
+    const itemDate = new Date(item.date);
+    return itemDate.getMonth() === date.getMonth() && itemDate.getDate() === date.getDate();
+  }).length);
+  const previousCumulative = previousDaily.map((_, index) => previousDaily.slice(0, index + 1).reduce((sum, value) => sum + value, 0));
   const cutoffIndex = now >= end ? days.length - 1 : now < start ? 0 : Math.max(0, days.findIndex((date) => sameCalendarDay(date, now)));
   const totalSellingDays = sellingDaysThrough(start, addDays(end, -1));
   const elapsedSellingDays = Math.max(1, sellingDaysThrough(start, days[cutoffIndex]));
   const actual = cumulative[cutoffIndex] ?? 0;
   const forecastEnd = now >= end ? actual : Math.round(actual / elapsedSellingDays * totalSellingDays);
   const width = 720; const height = 250; const padding = { left: 38, right: 18, top: 18, bottom: 34 };
-  const ceiling = Math.max(10, Math.ceil(Math.max(target, forecastEnd, actual) / 10) * 10);
+  const previousTotal = previousCumulative.at(-1) ?? 0;
+  const ceiling = Math.max(10, Math.ceil(Math.max(target, forecastEnd, actual, previousTotal) / 10) * 10);
   const x = (index: number) => padding.left + index / Math.max(1, days.length - 1) * (width - padding.left - padding.right);
   const y = (value: number) => padding.top + (1 - value / ceiling) * (height - padding.top - padding.bottom);
   const actualPoints = days.slice(0, cutoffIndex + 1).map((_, index) => `${x(index)},${y(cumulative[index] ?? 0)}`).join(" ");
+  const previousPoints = days.map((_, index) => `${x(index)},${y(previousCumulative[index] ?? 0)}`).join(" ");
   const forecastPoints = days.slice(cutoffIndex).map((date, offset) => {
     const index = cutoffIndex + offset;
     const sellingToDate = sellingDaysThrough(start, date);
@@ -960,20 +972,22 @@ function QuoteForecastChart({ items, year, month, target }: { items: QuoteHistor
     return `${x(index)},${y(value)}`;
   }).join(" ");
   const targetPoints = days.map((date, index) => `${x(index)},${y(target * sellingDaysThrough(start, date) / totalSellingDays)}`).join(" ");
-  return <section className="panel commercial-trend quote-forecast"><header><div><h3>Trend preventivi e previsione fine mese</h3><p>{MONTHS[month - 1]} {year} · cumulato reale, ritmo obiettivo e forecast</p></div><div className="trend-summary"><span><b>{actual}</b> attuali</span><span><b>{forecastEnd}</b> forecast</span><span><b>{target}</b> obiettivo</span></div></header>
+  return <section className="panel commercial-trend quote-forecast"><header><div><h3>Trend preventivi e previsione fine mese</h3><p>{MONTHS[month - 1]} {year} · confronto con {MONTHS[month - 1]} {year - 1}</p></div><div className="trend-summary"><span><b>{actual}</b> attuali</span><span><b>{previousTotal}</b> anno scorso</span><span><b>{forecastEnd}</b> forecast</span><span><b>{target}</b> obiettivo</span></div></header>
     <div className="trend-chart-wrap"><svg className="trend-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Preventivi ${actual}, forecast ${forecastEnd}, obiettivo ${target}`}>
       {[0, .25, .5, .75, 1].map((ratio) => { const value = ceiling * ratio; return <g key={ratio}><line x1={padding.left} x2={width - padding.right} y1={y(value)} y2={y(value)} /><text x={padding.left - 8} y={y(value) + 4}>{Math.round(value)}</text></g>; })}
-      <polyline className="trend-line target" points={targetPoints} /><polyline className="trend-line quotes" points={actualPoints} /><polyline className="trend-line quote-forecast-line" points={forecastPoints} />
+      <polyline className="trend-line previous" points={previousPoints} /><polyline className="trend-line target" points={targetPoints} /><polyline className="trend-line quotes" points={actualPoints} /><polyline className="trend-line quote-forecast-line" points={forecastPoints} />
       {days.map((date, index) => index % 5 === 0 || index === days.length - 1 ? <text className="trend-x-label" x={x(index)} y={height - 9} key={date.toISOString()}>{date.getDate()}</text> : null)}
-    </svg></div><div className="trend-legend"><span><i className="quotes" />Preventivi reali</span><span><i className="forecast-quote" />Forecast</span><span><i className="target" />Obiettivo</span></div>
+    </svg></div><div className="trend-legend"><span><i className="quotes" />Preventivi reali</span><span><i className="previous" />Stesso mese anno scorso</span><span><i className="forecast-quote" />Forecast</span><span><i className="target" />Obiettivo</span></div>
   </section>;
 }
 
-function QuoteWeeklyPanel({ quotes, contracts, year, month }: { quotes: QuoteHistoryItem[]; contracts: ContractHistoryItem[]; year: number; month: number }) {
+function QuoteWeeklyPanel({ quotes, contracts, previousQuotes, previousContracts, year, month }: { quotes: QuoteHistoryItem[]; contracts: ContractHistoryItem[]; previousQuotes: QuoteHistoryItem[]; previousContracts: ContractHistoryItem[]; year: number; month: number }) {
   const rows = [1, 2, 3, 4, 5].map((week) => {
     const quoteCount = quotes.filter((item) => weekOfMonth(new Date(item.date)) === week).length;
     const contractCount = contracts.filter((item) => weekOfMonth(localContractDate(item.date)) === week).length;
-    return { week, label: weekLabel(year, month, week), quotes: quoteCount, contracts: contractCount };
+    const previousQuoteCount = previousQuotes.filter((item) => weekOfMonth(new Date(item.date)) === week).length;
+    const previousContractCount = previousContracts.filter((item) => weekOfMonth(localContractDate(item.date)) === week).length;
+    return { week, label: weekLabel(year, month, week), quotes: quoteCount, contracts: contractCount, previousQuotes: previousQuoteCount, previousContracts: previousContractCount };
   });
   const totalQuotes = rows.reduce((sum, row) => sum + row.quotes, 0);
   const totalContracts = rows.reduce((sum, row) => sum + row.contracts, 0);
@@ -981,7 +995,7 @@ function QuoteWeeklyPanel({ quotes, contracts, year, month }: { quotes: QuoteHis
   return <section className="panel quote-weekly-panel"><header><div><h3>Preventivi settimana per settimana</h3><p>{MONTHS[month - 1]} {year} · contratti confermati dal file Venduto</p></div><CalendarDays size={19} /></header>
     <div className="quote-weekly-chart">{rows.map((row) => <article key={row.week}><div className="quote-weekly-bars"><i className="quotes" style={{ height: `${Math.max(row.quotes ? 5 : 0, row.quotes / ceiling * 100)}%` }} title={`${row.quotes} preventivi`} /><i className="contracts" style={{ height: `${Math.max(row.contracts ? 5 : 0, row.contracts / ceiling * 100)}%` }} title={`${row.contracts} contratti`} /></div><b>S{row.week}</b><span>{row.quotes} prev.</span><small>{percentage(row.contracts, row.quotes)}</small></article>)}</div>
     <div className="trend-legend"><span><i className="quotes" />Preventivi</span><span><i className="actual" />Contratti</span><span><b>{percentage(totalContracts, totalQuotes)}</b> conversione totale</span></div>
-    <div className="data-table quote-weekly-table"><div className="data-row data-head"><span>Settimana</span><span>Preventivi</span><span>Contratti</span><span>Prev. → Contr.</span><span>Quota preventivi</span></div>{rows.map((row) => <div className="data-row" key={row.week}><b>{row.label}</b><strong>{row.quotes}</strong><strong>{row.contracts}</strong><strong className="conversion-primary">{percentage(row.contracts, row.quotes)}</strong><span>{percentage(row.quotes, totalQuotes)}</span></div>)}<div className="data-row data-total"><b>TOTALE MESE</b><strong>{totalQuotes}</strong><strong>{totalContracts}</strong><strong className="conversion-primary">{percentage(totalContracts, totalQuotes)}</strong><span>100%</span></div></div>
+    <div className="data-table quote-weekly-table"><div className="data-row data-head"><span>Settimana</span><span>Preventivi</span><span>Anno scorso</span><span>Variazione</span><span>Contratti</span><span>Prev. → Contr.</span></div>{rows.map((row) => <div className="data-row" key={row.week}><b>{row.label}</b><strong>{row.quotes}</strong><span>{row.previousQuotes}</span><strong className={row.quotes >= row.previousQuotes ? "positive" : "negative"}>{comparisonDelta(row.quotes, row.previousQuotes)}</strong><strong>{row.contracts}</strong><strong className="conversion-primary">{percentage(row.contracts, row.quotes)}</strong></div>)}<div className="data-row data-total"><b>TOTALE MESE</b><strong>{totalQuotes}</strong><span>{previousQuotes.length}</span><strong className={totalQuotes >= previousQuotes.length ? "positive" : "negative"}>{comparisonDelta(totalQuotes, previousQuotes.length)}</strong><strong>{totalContracts}</strong><strong className="conversion-primary">{percentage(totalContracts, totalQuotes)}</strong></div></div>
   </section>;
 }
 
@@ -1057,8 +1071,8 @@ function QuotesView({ payload }: { payload: DashboardPayload }) {
         { label: "Conversione", current: goalItems.length ? goalConverted / goalItems.length * 100 : 0, previous: previousItems.length ? previousConverted / previousItems.length * 100 : 0, format: "percentage" },
       ]} />
       <div className="two-columns quote-analysis"><QuoteGoalPanel items={goalItems} sellers={goalSellers} selectedSeller={seller} year={effectiveYear} month={effectiveMonth} /><section className="panel"><header><div><h3>Preventivi per venditore</h3><p>Carico commerciale nel periodo</p></div><Users size={19} /></header><BarList rows={bySeller} /></section></div>
-      <QuoteForecastChart items={goalItems} year={effectiveYear} month={effectiveMonth} target={quoteTarget} />
-      <QuoteWeeklyPanel quotes={goalItems} contracts={goalConvertedContracts} year={effectiveYear} month={effectiveMonth} />
+      <QuoteForecastChart items={goalItems} previousItems={previousItems} year={effectiveYear} month={effectiveMonth} target={quoteTarget} />
+      <QuoteWeeklyPanel quotes={goalItems} contracts={goalConvertedContracts} previousQuotes={previousItems} previousContracts={previousConvertedContracts} year={effectiveYear} month={effectiveMonth} />
       <div className="history-grid">
         <section className="panel"><header><div><h3>Andamento mensile</h3><p>Numero di preventivi nel tempo</p></div><TrendingUp size={19} /></header><BarList rows={byMonth} maxRows={18} /></section>
         <section className="panel"><header><div><h3>Stato delle trattative</h3><p>Follow-up, conversioni e motivi di uscita</p></div><Target size={19} /></header><BarList rows={byOutcome} /></section>
@@ -1176,10 +1190,7 @@ function ContractsView({ payload }: { payload: DashboardPayload }) {
   const currentYearCount = sellerBase.filter((item) => item.year === effectiveYear && (item.month < yearCutoffMonth || (item.month === yearCutoffMonth && Number(item.date.slice(8, 10)) <= yearCutoffDay))).length;
   const previousYearCount = sellerBase.filter((item) => item.year === effectiveYear - 1 && (item.month < yearCutoffMonth || (item.month === yearCutoffMonth && Number(item.date.slice(8, 10)) <= yearCutoffDay))).length;
   const effectiveMonth = month === "all" ? (effectiveYear === currentDate.getFullYear() ? currentDate.getMonth() + 1 : 12) : Number(month);
-  const previousMonth = effectiveMonth === 1 ? 12 : effectiveMonth - 1;
-  const previousMonthYear = effectiveMonth === 1 ? effectiveYear - 1 : effectiveYear;
   const currentMonthCount = sellerBase.filter((item) => item.year === effectiveYear && item.month === effectiveMonth).length;
-  const previousMonthCount = sellerBase.filter((item) => item.year === previousMonthYear && item.month === previousMonth).length;
   const lastYearMonthRows = sellerBase.filter((item) => item.year === effectiveYear - 1 && item.month === effectiveMonth);
   const sameMonthRows = sellerBase.filter((item) => item.year === effectiveYear && item.month === effectiveMonth);
   const sameMonthRevenue = sameMonthRows.reduce((sum, item) => sum + (item.revenue || 0), 0);
@@ -1208,7 +1219,7 @@ function ContractsView({ payload }: { payload: DashboardPayload }) {
       ]} />
       <div className="comparison-strip">
         <div><span>{effectiveYear} vs {effectiveYear - 1}{effectiveYear === currentDate.getFullYear() ? " · stesso periodo" : ""}</span><strong className={currentYearCount >= previousYearCount ? "positive" : "negative"}>{delta(currentYearCount, previousYearCount)}</strong><small>{currentYearCount} vs {previousYearCount} contratti</small></div>
-        <div><span>{MONTHS[effectiveMonth - 1]} vs {MONTHS[previousMonth - 1]}</span><strong className={currentMonthCount >= previousMonthCount ? "positive" : "negative"}>{delta(currentMonthCount, previousMonthCount)}</strong><small>{currentMonthCount} vs {previousMonthCount} contratti</small></div>
+        <div><span>{MONTHS[effectiveMonth - 1]} {effectiveYear} vs {effectiveYear - 1}</span><strong className={currentMonthCount >= lastYearMonthRows.length ? "positive" : "negative"}>{delta(currentMonthCount, lastYearMonthRows.length)}</strong><small>{currentMonthCount} vs {lastYearMonthRows.length} contratti</small></div>
       </div>
       <div className="history-grid">
         <section className="panel"><header><div><h3>Contratti per anno</h3><p>Andamento storico Car One + AD Motor</p></div><TrendingUp size={19} /></header><BarList rows={byYear} /></section>
