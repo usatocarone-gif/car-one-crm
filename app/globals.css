@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   --bg: #f5f6f8;
   --surface: #ffffff;
   --surface-soft: #f8f9fb;
@@ -300,6 +301,51 @@ button { font: inherit; }
 .loading { min-height: 65vh; display: flex; gap: 10px; justify-content: center; align-items: center; color: var(--muted); }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #0f1115;
+    --surface: #191c22;
+    --surface-soft: #22262e;
+    --text: #f2f4f7;
+    --muted: #a8aeb8;
+    --line: #303640;
+    --brand: #ff4b57;
+    --brand-soft: #3a2025;
+    --success: #52c99f;
+    --warning: #f0ad4e;
+    --shadow: 0 12px 32px rgba(0, 0, 0, .24);
+  }
+
+  .sidebar { background: #0a0c10; }
+  .sidebar nav button:hover, .sidebar nav button.active { background: #242831; }
+  .sidebar footer { border-color: #282d35; }
+  .period-tabs button.active,
+  .mini-tabs button.active,
+  .chart-switcher button.active { color: #101217; }
+  .social-cluster { background: linear-gradient(135deg, #291a1e, var(--surface)); border-color: #503038; }
+  .social-cluster .metric-card { border-color: #493037; }
+  .sales-cluster { background: linear-gradient(135deg, #1a202b, var(--surface)); border-color: #343d4d; }
+  .sales-cluster::before,
+  .sales-cluster > header > span,
+  .sales-pulse .progress i { background: #8293b8; }
+  .section-kicker.sales { color: #aebce0; }
+  .progress, .track { background: #303640; }
+  .agenda-item em.presented { background: #17362d; }
+  .agenda-item em.opportunity { color: #86bfff; background: #1b3048; }
+  .data-row:not(.data-head) > span:not(:first-child) { color: #d7dbe2; }
+  .waiting { background: #3d301b; }
+  .filter-bar select,
+  .cluster-cell { background: var(--surface); }
+  .seller-row .track i,
+  .history-bar .track i { background: #8c96a8; }
+  .trend-line.previous { stroke: #a4aab4; }
+  .trend-marker line { stroke: #777f8d; }
+  .conversion-primary,
+  .quote-weekly-chart small { color: #72b9f2 !important; }
+  .placeholder { border-color: #414752; }
+}
 
 @media (max-width: 980px) {
   .app-shell { grid-template-columns: 76px minmax(0, 1fr); }
