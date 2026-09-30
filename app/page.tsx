@@ -8,7 +8,7 @@ import { snapshot } from "@/lib/snapshot";
 const menu = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "channels", label: "Canali", icon: GitBranch },
-  { id: "sources", label: "Provenienza lead", icon: TrendingUp },
+  { id: "sources", label: "Lead", icon: TrendingUp },
   { id: "agenda", label: "Appuntamenti social", icon: CalendarDays },
   { id: "quotes", label: "Preventivi", icon: FileText },
   { id: "contracts", label: "Contratti", icon: FileCheck2 },
@@ -500,12 +500,73 @@ function sumLeadHistory(items: LeadHistoryItem[], key: (item: LeadHistoryItem) =
   return [...result.entries()].sort((a, b) => b[1] - a[1]);
 }
 
+type LeadManagementItem = {
+  year: number;
+  month: number;
+  week: number;
+  seller: string;
+  channel: string;
+  total: number;
+  managed: number;
+  unmanaged: number;
+};
+
+type LeadManagementSummary = { total: number; managed: number; unmanaged: number };
+
+function sumLeadManagement(items: LeadManagementItem[]): LeadManagementSummary {
+  return items.reduce((sum, item) => ({
+    total: sum.total + item.total,
+    managed: sum.managed + item.managed,
+    unmanaged: sum.unmanaged + item.unmanaged,
+  }), { total: 0, managed: 0, unmanaged: 0 });
+}
+
+function LeadManagementPanel({ current, previous, sourceLeadTotal, comparisonEnabled }: { current: LeadManagementItem[]; previous: LeadManagementItem[]; sourceLeadTotal: number; comparisonEnabled: boolean }) {
+  const sellers = SALES_TEAM;
+  const rows = sellers.map((seller) => {
+    const currentTotals = sumLeadManagement(current.filter((item) => item.seller === seller));
+    const previousTotals = sumLeadManagement(previous.filter((item) => item.seller === seller));
+    const rate = currentTotals.total ? currentTotals.managed / currentTotals.total * 100 : 0;
+    const previousRate = previousTotals.total ? previousTotals.managed / previousTotals.total * 100 : null;
+    return { seller, ...currentTotals, rate, previousTotal: previousTotals.total, previousRate };
+  }).sort((a, b) => a.rate - b.rate || b.unmanaged - a.unmanaged || a.seller.localeCompare(b.seller));
+  const totals = sumLeadManagement(current);
+  const previousTotals = sumLeadManagement(previous);
+  const rate = totals.total ? totals.managed / totals.total * 100 : 0;
+  const previousRate = previousTotals.total ? previousTotals.managed / previousTotals.total * 100 : null;
+
+  return <section className="panel lead-management-panel">
+    <header><div><h3>Gestione lead per venditore</h3><p>Feedback valorizzato = gestito · feedback vuoto = non gestito</p></div><CheckCircle2 size={19} /></header>
+    {rows.length ? <>
+      <div className="lead-management-summary">
+        <article><span>Righe nei fogli venditori</span><strong>{totals.total}</strong><small>{sourceLeadTotal ? `${sourceLeadTotal} lead Make Leads nello stesso filtro` : "Periodo senza totale Make Leads"}</small></article>
+        <article><span>Gestiti</span><strong>{totals.managed}</strong><small>{percentage(totals.managed, totals.total)} del carico assegnato</small></article>
+        <article className="attention"><span>Non gestiti</span><strong>{totals.unmanaged}</strong><small>feedback ancora vuoto</small></article>
+        <article><span>Tasso di gestione</span><strong>{formatNumber(rate)}%</strong><small>{comparisonEnabled && previousRate !== null ? `${rate >= previousRate ? "+" : ""}${formatNumber(rate - previousRate)} punti vs anno scorso` : "anno scorso non disponibile"}</small></article>
+      </div>
+      <div className="lead-management-bars">{rows.map((row) => <article key={row.seller}>
+        <header><b>{row.seller}</b><strong>{formatNumber(row.rate)}%</strong></header>
+        <div className="lead-management-track"><i style={{ width: `${row.rate}%` }} /><em style={{ width: `${100 - row.rate}%` }} /></div>
+        <footer><span>{row.managed} gestiti</span><span>{row.unmanaged} non gestiti</span></footer>
+      </article>)}</div>
+      <div className="data-table lead-management-table">
+        <div className="data-row data-head"><span>Venditore</span><span>Lead</span><span>Gestiti</span><span>Non gestiti</span><span>Tasso gestione</span><span>Anno scorso</span><span>Δ punti</span></div>
+        {rows.map((row) => <div className="data-row" key={row.seller}><b>{row.seller}</b><strong>{row.total}</strong><span>{row.managed}</span><strong className={row.unmanaged ? "management-alert" : "good"}>{row.unmanaged}</strong><strong className={row.rate >= 80 ? "good" : row.rate < 50 ? "management-alert" : ""}>{formatNumber(row.rate)}%</strong><span>{comparisonEnabled && row.previousRate !== null ? `${formatNumber(row.previousRate)}%` : "n.d."}</span><span>{comparisonEnabled && row.previousRate !== null ? `${row.rate >= row.previousRate ? "+" : ""}${formatNumber(row.rate - row.previousRate)}` : "—"}</span></div>)}
+        <div className="data-row data-total"><b>TOTALE</b><strong>{totals.total}</strong><strong>{totals.managed}</strong><strong>{totals.unmanaged}</strong><strong>{formatNumber(rate)}%</strong><span>{comparisonEnabled && previousRate !== null ? `${formatNumber(previousRate)}%` : "n.d."}</span><span>{comparisonEnabled && previousRate !== null ? `${rate >= previousRate ? "+" : ""}${formatNumber(rate - previousRate)}` : "—"}</span></div>
+      </div>
+      <div className="notice"><CircleAlert size={17} /><span>Il confronto annuale resta sempre visibile. Quando compare “n.d.” significa che il foglio del venditore non contiene lo stesso periodo dell’anno precedente; la dashboard non inventa un valore zero.</span></div>
+    </> : <div className="empty-compact">Nessun lead assegnato nei fogli venditori per il periodo selezionato.</div>}
+  </section>;
+}
+
 function SourcesView({ payload }: { payload: DashboardPayload }) {
   const history = payload.leadHistory ?? [];
+  const management = ((payload as DashboardPayload & { leadManagement?: LeadManagementItem[] }).leadManagement ?? []);
   const years = [...new Set(history.map((item) => item.year))].sort((a, b) => b - a);
   const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth() + 1;
   const [year, setYear] = useState(years.includes(currentYear) ? String(currentYear) : "all");
-  const [month, setMonth] = useState("all");
+  const [month, setMonth] = useState(history.some((item) => item.year === currentYear && item.month === currentMonth) ? String(currentMonth) : "all");
   const [channel, setChannel] = useState("all");
   const [region, setRegion] = useState("all");
   const channels = [...new Set(history.map((item) => item.channel))].sort();
@@ -542,9 +603,20 @@ function SourcesView({ payload }: { payload: DashboardPayload }) {
     (region === "all" || item.region === region);
   const comparisonCurrent = history.filter((item) => comparisonFilter(item, comparisonYear)).reduce((sum, item) => sum + item.leads, 0);
   const comparisonPrevious = history.filter((item) => comparisonFilter(item, comparisonYear - 1)).reduce((sum, item) => sum + item.leads, 0);
+  const managementFilter = (item: LeadManagementItem, targetYear?: number) =>
+    (targetYear === undefined ? (year === "all" || item.year === Number(year)) : item.year === targetYear) &&
+    (month === "all" || item.month === Number(month)) &&
+    (channel === "all" || item.channel === channel);
+  const managementCurrent = management.filter((item) => managementFilter(item));
+  const managementPrevious = year === "all" ? [] : management.filter((item) => managementFilter(item, comparisonYear - 1));
+  const managementSourceTotal = history.filter((item) =>
+    (year === "all" || item.year === Number(year)) &&
+    (month === "all" || item.month === Number(month)) &&
+    (channel === "all" || item.channel === channel)
+  ).reduce((sum, item) => sum + item.leads, 0);
 
   return <>
-    <header className="page-head"><div><p className="eyebrow">Acquisizione</p><h1>Provenienza lead</h1><span>Storico Make Leads · canale, regione e zona</span></div></header>
+    <header className="page-head"><div><p className="eyebrow">Acquisizione</p><h1>Lead e gestione commerciale</h1><span>Provenienza, territorio e lavorazione dei lead assegnati ai venditori</span></div></header>
     <section className="filter-bar">
       <label><span>Anno</span><select value={year} onChange={(event) => setYear(event.target.value)}><option value="all">Tutti</option>{years.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
       <label><span>Mese</span><select value={month} onChange={(event) => setMonth(event.target.value)}><option value="all">Tutti</option>{MONTHS.map((item, index) => <option value={index + 1} key={item}>{item}</option>)}</select></label>
@@ -560,6 +632,7 @@ function SourcesView({ payload }: { payload: DashboardPayload }) {
         <Metric label="Zone classificate" value={percentage(classified, total)} primary={`${classified} lead`} secondary={`${total - classified} da verificare`} />
       </div>
       <YoYComparison rows={[{ label: "Lead", current: comparisonCurrent, previous: comparisonPrevious }]} />
+      <LeadManagementPanel current={managementCurrent} previous={managementPrevious} sourceLeadTotal={managementSourceTotal} comparisonEnabled={year !== "all"} />
       <div className="history-grid source-history-grid">
         <section className="panel"><header><div><h3>Andamento mensile</h3><p>Volumi e stagionalità dei lead</p></div><TrendingUp size={19} /></header><BarList rows={byMonth} maxRows={18} /></section>
         <section className="panel"><header><div><h3>Canali di acquisizione</h3><p>Facebook, Instagram, TikTok e altri</p></div><BarChart3 size={19} /></header><BarList rows={byChannel} /></section>
