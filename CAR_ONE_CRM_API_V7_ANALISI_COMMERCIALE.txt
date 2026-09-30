@@ -2,6 +2,18 @@ const LEADS_ID = '1VJwN567x7cqzZROQCLk6773YRguj3ThBBALL4vunod4';
 const SALES_ID = '1FOHWsp19vGMRbFJqZUAdMKWEI6aI1RnBjOaJq9TBtno';
 const CALENDAR_NAME = 'Car One Usato';
 const SELLERS = ['CAIRONI', 'GRANDOLINI', 'LIGUORI', 'MONACELLI', 'BORDINI', 'PAGLIARA'];
+// Fonti lead operative. Entrambe contribuiscono ai KPI e allo storico.
+const CURRENT_LEAD_SHEETS = ['Foglio1', 'giuseppe lead'];
+// Fogli operativi assegnati ai venditori. Una riga con feedback valorizzato
+// è considerata gestita; una riga con feedback vuoto resta da lavorare.
+const LEAD_MANAGEMENT_SOURCES = [
+  { id: '1lX4TLzofx9vlFrZJKdAKewlXmyK793wXxtrJqG5HZmo', sheet: 'Liguori', seller: 'LIGUORI' },
+  { id: '1lX4TLzofx9vlFrZJKdAKewlXmyK793wXxtrJqG5HZmo', sheet: 'Bordini', seller: 'BORDINI' },
+  { id: '1lX4TLzofx9vlFrZJKdAKewlXmyK793wXxtrJqG5HZmo', sheet: 'Grandolini', seller: 'GRANDOLINI' },
+  { id: '1pwrE4v5Oe7Phn6N-Byz0v8shBk109WGbjcpgKt5ypac', sheet: 'Monacelli', seller: 'MONACELLI' },
+  { id: '17K_WxvmzItjPRPkw1Dr3qK6Reeab3i-0QRWu3H5GOsw', sheet: 'caironi', seller: 'CAIRONI' },
+  { id: LEADS_ID, sheet: 'giuseppe lead', seller: 'PAGLIARA' }
+];
 // Mesi chiusi: Foglio1 non va inserito qui, perché contiene sempre il mese corrente.
 const LEAD_HISTORY_SHEETS = [
   { name: 'Giugno', year: 2025, month: 6 },
@@ -46,6 +58,7 @@ function buildDashboard_() {
 
   const leadRows = readLeads_();
   const leadHistory = mergeCurrentLeadHistory_(readLeadHistory_(now), leadRows, now);
+  const leadManagement = readLeadManagement_();
   const leadAppointments = readLeadAppointments_();
   const quotes = readQuotes_();
   const officialSales = readOfficialSales_();
@@ -100,7 +113,7 @@ function buildDashboard_() {
 
   return {
     source: 'google-live',
-    apiVersion: '2026-08-06-dynamic-current-leads-v14',
+    apiVersion: '2026-09-30-gestione-lead-v16',
     lastUpdated: now.toISOString(),
     contractData: {
       currentPeriodSource: "PROIEZ. REDDITIVITA'",
@@ -149,6 +162,7 @@ function buildDashboard_() {
     }),
     leadSources: leadSources,
     leadHistory: aggregateLeadHistory_(leadHistory),
+    leadManagement: aggregateLeadManagement_(leadManagement),
     channelAnalysis: channelAnalysis,
     sellerConversions: sellerConversions,
     contractHistory: sales.filter(function (sale) {
@@ -178,40 +192,128 @@ function agendaItem_(item) {
 }
 
 function readLeads_() {
-  const sheet = SpreadsheetApp.openById(LEADS_ID).getSheetByName('Foglio1');
-  if (!sheet || sheet.getLastRow() < 2) return [];
-  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 7).getValues();
-  return values.map(function (row) {
-    const source = String(row[5] || '');
-    return {
-      date: parseDate_(row[0]),
-      source: source,
-      channel: normalizeSource_(source),
-      city: cleanLeadCity_(row[6]),
-      client: String(row[1] || '').trim(),
-      phone: normalizePhone_(row[4])
-    };
-  }).filter(function (row) { return row.date !== null; });
+  const spreadsheet = SpreadsheetApp.openById(LEADS_ID);
+  const seen = {};
+  const result = [];
+  CURRENT_LEAD_SHEETS.forEach(function (sheetName) {
+    const sheet = spreadsheet.getSheetByName(sheetName);
+    if (!sheet || sheet.getLastRow() < 2) return;
+    const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 10).getValues();
+    values.forEach(function (row) {
+      const date = parseDate_(row[0]);
+      if (!date) return;
+      const source = String(row[5] || '');
+      const lead = {
+        date: date,
+        source: source,
+        channel: normalizeSource_(source),
+        city: cleanLeadCity_(row[6]),
+        client: String(row[1] || '').trim(),
+        email: String(row[2] || '').trim().toLowerCase(),
+        phone: normalizePhone_(row[4]),
+        leadId: String(row[9] || '').trim(),
+        sourceSheet: sheetName
+      };
+      // Deduplica solo lo stesso evento/riga. Se la stessa persona invia una
+      // nuova richiesta in un altro momento, il nuovo lead resta conteggiato.
+      const key = leadIdentityKey_(lead);
+      if (seen[key]) return;
+      seen[key] = true;
+      result.push(lead);
+    });
+  });
+  return result;
+}
+
+function readLeadManagement_() {
+  const spreadsheets = {};
+  const result = [];
+  LEAD_MANAGEMENT_SOURCES.forEach(function (source) {
+    const spreadsheet = spreadsheets[source.id] || SpreadsheetApp.openById(source.id);
+    spreadsheets[source.id] = spreadsheet;
+    const sheet = spreadsheet.getSheetByName(source.sheet);
+    if (!sheet || sheet.getLastRow() < 2 || sheet.getLastColumn() < 1) return;
+
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0].map(function (value) {
+      return String(value || '').trim().toLowerCase();
+    });
+    const dateIndex = headers.indexOf('data');
+    const feedbackIndex = headers.indexOf('feedback');
+    const sourceIndex = headers.indexOf('origine');
+    if (dateIndex < 0 || feedbackIndex < 0) return;
+
+    const width = Math.max(dateIndex, feedbackIndex, sourceIndex) + 1;
+    const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, width).getValues();
+    rows.forEach(function (row) {
+      const date = parseDate_(row[dateIndex]);
+      if (!date) return;
+      const feedback = row[feedbackIndex];
+      result.push({
+        date: date,
+        seller: source.seller,
+        channel: sourceIndex >= 0 ? normalizeSource_(row[sourceIndex]) : 'Non indicata',
+        managed: feedback !== null && feedback !== '' && String(feedback).trim() !== ''
+      });
+    });
+  });
+  return result;
+}
+
+function aggregateLeadManagement_(rows) {
+  const grouped = {};
+  rows.forEach(function (row) {
+    const year = row.date.getFullYear();
+    const month = row.date.getMonth() + 1;
+    const week = weekOfMonth_(row.date);
+    const key = [year, month, week, row.seller, row.channel].join('|');
+    if (!grouped[key]) {
+      grouped[key] = {
+        year: year,
+        month: month,
+        week: week,
+        seller: titleCaseWords_(row.seller),
+        channel: row.channel,
+        total: 0,
+        managed: 0,
+        unmanaged: 0
+      };
+    }
+    grouped[key].total += 1;
+    if (row.managed) grouped[key].managed += 1;
+    else grouped[key].unmanaged += 1;
+  });
+  return Object.keys(grouped).map(function (key) { return grouped[key]; }).sort(function (a, b) {
+    return a.year - b.year || a.month - b.month || a.week - b.week || a.seller.localeCompare(b.seller) || a.channel.localeCompare(b.channel);
+  });
 }
 
 function mergeCurrentLeadHistory_(history, currentRows, referenceDate) {
-  const currentYear = referenceDate.getFullYear();
-  const currentMonth = referenceDate.getMonth() + 1;
-  const closedMonths = history.filter(function (row) {
-    return row.date.getFullYear() !== currentYear || row.date.getMonth() + 1 !== currentMonth;
-  });
-  const currentMonthRows = currentRows.filter(function (row) {
-    return row.date.getFullYear() === currentYear && row.date.getMonth() + 1 === currentMonth;
-  }).map(function (row) {
-    return {
+  const seen = {};
+  const result = [];
+  history.concat(currentRows).forEach(function (row) {
+    if (!row.date) return;
+    const key = leadIdentityKey_(row);
+    if (seen[key]) return;
+    seen[key] = true;
+    result.push({
       date: row.date,
       channel: row.channel,
       city: row.city,
       client: row.client,
+      email: String(row.email || '').trim().toLowerCase(),
       phone: row.phone
-    };
+    });
   });
-  return closedMonths.concat(currentMonthRows);
+  return result;
+}
+
+function leadIdentityKey_(row) {
+  return [
+    Utilities.formatDate(row.date, 'Europe/Rome', 'yyyy-MM-dd HH:mm:ss'),
+    String(row.email || '').trim().toLowerCase(),
+    String(row.phone || '').replace(/\D/g, ''),
+    contactNameKey_(row.client || '')
+  ].join('|');
 }
 
 function readQuotes_() {
@@ -247,6 +349,7 @@ function readLeadHistory_(referenceDate) {
       const channel = normalizeSource_(row[5]);
       const city = cleanLeadCity_(row[6]);
       const client = String(row[1] || '').trim();
+      const email = String(row[2] || '').trim().toLowerCase();
       const phone = normalizePhone_(row[4]);
       const key = [
         Utilities.formatDate(date, 'Europe/Rome', 'yyyy-MM-dd HH:mm:ss'),
@@ -255,7 +358,7 @@ function readLeadHistory_(referenceDate) {
       ].join('|');
       if (seen[key]) return;
       seen[key] = true;
-      result.push({ date: date, channel: channel, city: city, client: client, phone: phone });
+      result.push({ date: date, channel: channel, city: city, client: client, email: email, phone: phone });
     });
   });
   return result;
@@ -606,18 +709,28 @@ function readProjectionSales_(referenceDate) {
   let currentBlockStarted = false;
   for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i];
-    const date = parseDate_(row[0]);
+    const rawSeller = String(row[4] || '').trim();
+    const vehicle = String(row[2] || '').trim();
+    const plate = String(row[3] || '').trim();
+    const hasContractData = Boolean(rawSeller && (vehicle || plate));
+    let date = parseDate_(row[0]);
     if (!date) {
-      if (currentBlockStarted) break;
-      continue;
+      // Una data scritta male non deve troncare tutto il mese. Interrompiamo
+      // soltanto quando, dopo il blocco corrente, troviamo una vera riga vuota.
+      if (currentBlockStarted && !hasContractData) break;
+      if (currentBlockStarted && hasContractData && row[0]) {
+        date = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate());
+      } else {
+        continue;
+      }
     }
     if (!currentBlockStarted) {
       if (!inRange_(date, monthStart, monthEnd)) continue;
       currentBlockStarted = true;
     }
-    const rawSeller = String(row[4] || '').trim();
-    const vehicle = String(row[2] || '').trim();
-    if (!rawSeller || !vehicle) continue;
+    if (!hasContractData) {
+      continue;
+    }
     const normalizedSeller = normalizeHistorySeller_(rawSeller);
     const seller = SELLERS.indexOf(normalizedSeller) >= 0 ? normalizedSeller : 'ALTRI';
     const effectiveDate = inRange_(date, monthStart, monthEnd)
@@ -632,7 +745,7 @@ function readProjectionSales_(referenceDate) {
       company: company,
       origin: normalizeContractOrigin_(row[6]),
       revenue: parseAmount_(row[9]),
-      key: saleKey_(effectiveDate, row[1], row[2], seller, company)
+      key: saleKey_(effectiveDate, row[1], vehicle || plate, seller, company)
     });
   }
   return result;
@@ -755,6 +868,12 @@ function parseDate_(value) {
   const match = String(value).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
   if (match) {
     const parsed = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]), Number(match[4] || 0), Number(match[5] || 0));
+    return isNaN(parsed.getTime()) ? null : parsed;
+  }
+  // Corregge refusi come 11/082026 (slash mancante prima dell'anno).
+  const compactMatch = String(value).trim().match(/^(\d{1,2})\/(\d{2})(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
+  if (compactMatch) {
+    const parsed = new Date(Number(compactMatch[3]), Number(compactMatch[2]) - 1, Number(compactMatch[1]), Number(compactMatch[4] || 0), Number(compactMatch[5] || 0));
     return isNaN(parsed.getTime()) ? null : parsed;
   }
   const iso = new Date(String(value));
