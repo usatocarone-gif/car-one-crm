@@ -1,12 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BarChart3, CalendarDays, CheckCircle2, CircleAlert, Euro, FileCheck2, FileText, Gauge, GitBranch, LayoutDashboard, RefreshCw, Target, TrendingUp, Users } from "lucide-react";
-import type { AppointmentItem, ChannelCohortItem, ContractHistoryItem, DashboardPayload, DashboardPeriod, LeadHistoryItem, PeriodKey, QuoteHistoryItem, ShowRateHistoryItem, SocialAppointmentHistoryItem } from "@/lib/types";
+import { BarChart3, BrainCircuit, CalendarDays, CheckCircle2, CircleAlert, Euro, FileCheck2, FileText, Gauge, GitBranch, LayoutDashboard, RefreshCw, Target, TrendingUp, Users } from "lucide-react";
+import type { AppointmentItem, ChannelCohortItem, ContractHistoryItem, DashboardPayload, DashboardPeriod, LeadHistoryItem, LeadManagementItem, PeriodKey, QuoteHistoryItem, ShowRateHistoryItem, SocialAppointmentHistoryItem } from "@/lib/types";
 import { snapshot } from "@/lib/snapshot";
+import { AILeadManagerView } from "@/app/components/ai-lead-manager";
 
 const menu = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { id: "ai-lead-manager", label: "AI Lead Manager", icon: BrainCircuit },
   { id: "channels", label: "Canali", icon: GitBranch },
   { id: "sources", label: "Lead", icon: TrendingUp },
   { id: "agenda", label: "Appuntamenti social", icon: CalendarDays },
@@ -500,17 +502,6 @@ function sumLeadHistory(items: LeadHistoryItem[], key: (item: LeadHistoryItem) =
   return [...result.entries()].sort((a, b) => b[1] - a[1]);
 }
 
-type LeadManagementItem = {
-  year: number;
-  month: number;
-  week: number;
-  seller: string;
-  channel: string;
-  total: number;
-  managed: number;
-  unmanaged: number;
-};
-
 type LeadManagementSummary = { total: number; managed: number; unmanaged: number };
 
 function sumLeadManagement(items: LeadManagementItem[]): LeadManagementSummary {
@@ -561,7 +552,7 @@ function LeadManagementPanel({ current, previous, sourceLeadTotal, comparisonEna
 
 function SourcesView({ payload }: { payload: DashboardPayload }) {
   const history = payload.leadHistory ?? [];
-  const management = ((payload as DashboardPayload & { leadManagement?: LeadManagementItem[] }).leadManagement ?? []);
+  const management = payload.leadManagement ?? [];
   const years = [...new Set(history.map((item) => item.year))].sort((a, b) => b - a);
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
@@ -1343,6 +1334,6 @@ export default function Home() {
 
   return <main className="app-shell">
     <aside className="sidebar"><div className="brand"><i /><div><strong>Car One CRM</strong><span>Usato · Perugia</span></div></div><nav>{menu.map(({ id, label, icon: Icon }) => <button key={id} className={section === id ? "active" : ""} onClick={() => setSection(id)}><Icon size={18} /><span>{label}</span></button>)}</nav><footer><CheckCircle2 size={15} /><div><strong>{payload.source === "google-live" ? "Google live · 5 min" : "Snapshot verificato"}</strong><span>{updated || "Caricamento…"}</span></div><button aria-label="Aggiorna dati" onClick={() => void refresh()} disabled={loading}><RefreshCw size={15} className={loading ? "spin" : ""} /></button></footer></aside>
-    <section className="content">{section === "dashboard" ? <Dashboard payload={payload} period={period} setPeriod={setPeriod} /> : section === "channels" ? <ChannelsView payload={payload} /> : section === "sources" ? <SourcesView payload={payload} /> : section === "agenda" ? <SocialAppointmentsView payload={payload} /> : section === "quotes" ? <QuotesView payload={payload} /> : section === "contracts" ? <ContractsView payload={payload} /> : section === "sellers" ? <SellersView payload={payload} /> : <Placeholder section={section} />}</section>
+    <section className="content">{section === "dashboard" ? <Dashboard payload={payload} period={period} setPeriod={setPeriod} /> : section === "ai-lead-manager" ? <AILeadManagerView payload={payload} /> : section === "channels" ? <ChannelsView payload={payload} /> : section === "sources" ? <SourcesView payload={payload} /> : section === "agenda" ? <SocialAppointmentsView payload={payload} /> : section === "quotes" ? <QuotesView payload={payload} /> : section === "contracts" ? <ContractsView payload={payload} /> : section === "sellers" ? <SellersView payload={payload} /> : <Placeholder section={section} />}</section>
   </main>;
 }
