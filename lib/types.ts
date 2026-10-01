@@ -63,8 +63,44 @@ export type DashboardPayload = {
     contracts: number;
   }>;
   leadHistory: LeadHistoryItem[];
+  leadManagement?: LeadManagementItem[];
+  leadItems?: LeadItem[];
   contractHistory: ContractHistoryItem[];
   channelAnalysis?: ChannelAnalysis;
+};
+
+export type LeadManagementItem = {
+  year: number;
+  month: number;
+  week: number;
+  seller: string;
+  channel: string;
+  total: number;
+  managed: number;
+  unmanaged: number;
+};
+
+export type LeadItem = {
+  id: string;
+  date: string;
+  year: number;
+  month: number;
+  week: number;
+  client: string;
+  interest: string;
+  city: string;
+  province: string;
+  region: string;
+  channel: string;
+  seller: string;
+  managed: boolean;
+  appointment: boolean;
+  appointmentCount?: number;
+  appointmentDate?: string;
+  appointmentStatus?: "presented" | "no-show" | "pending";
+  show: boolean;
+  quote: boolean;
+  contract: boolean;
 };
 
 export type ChannelCohortItem = {
