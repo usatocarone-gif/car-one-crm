@@ -14,6 +14,10 @@ function enrichLeadHistory(payload: DashboardPayload) {
       ...item,
       ...resolveItalianGeo(item.city),
     })),
+    leadItems: payload.leadItems?.map((item) => ({
+      ...item,
+      ...resolveItalianGeo(item.city),
+    })),
   };
 }
 
