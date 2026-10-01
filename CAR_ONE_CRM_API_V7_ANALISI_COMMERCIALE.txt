@@ -72,6 +72,7 @@ function buildDashboard_() {
     return inRange_(sale.date, monthStart, monthEnd);
   }));
   const appointments = readAppointments_(calendarStart, calendarEnd);
+  linkCalendarAppointmentsToLeadManagement_(leadManagement, appointments);
   const channelData = buildChannelAnalysis_(leadHistory, leadAppointments, quotes, sales, appointments);
   const channelAnalysis = channelData.analysis;
   const socialAppointments = channelData.socialAppointments;
@@ -113,7 +114,7 @@ function buildDashboard_() {
 
   return {
     source: 'google-live',
-    apiVersion: '2026-09-30-gestione-lead-v16',
+    apiVersion: '2026-09-30-ai-lead-manager-v1',
     lastUpdated: now.toISOString(),
     contractData: {
       currentPeriodSource: "PROIEZ. REDDITIVITA'",
@@ -163,6 +164,7 @@ function buildDashboard_() {
     leadSources: leadSources,
     leadHistory: aggregateLeadHistory_(leadHistory),
     leadManagement: aggregateLeadManagement_(leadManagement),
+    leadItems: serializeLeadItems_(leadManagement),
     channelAnalysis: channelAnalysis,
     sellerConversions: sellerConversions,
     contractHistory: sales.filter(function (sale) {
@@ -237,26 +239,76 @@ function readLeadManagement_() {
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0].map(function (value) {
       return String(value || '').trim().toLowerCase();
     });
-    const dateIndex = headers.indexOf('data');
-    const feedbackIndex = headers.indexOf('feedback');
-    const sourceIndex = headers.indexOf('origine');
+    const dateIndex = headerIndex_(headers, ['data']);
+    const clientIndex = headerIndex_(headers, ['nome', 'cliente']);
+    const phoneIndex = headerIndex_(headers, ['telefono', 'cellulare', 'phone']);
+    const sourceIndex = headerIndex_(headers, ['origine', 'canale']);
+    const cityIndex = headerIndex_(headers, ['città-', 'città', 'citta-', 'citta', 'zona']);
+    const interestIndex = headerIndex_(headers, ['auto', 'veicolo', 'interesse']);
+    const leadIdIndex = headerIndex_(headers, ['lead id', 'lead_id']);
+    const feedbackIndex = headerIndex_(headers, ['feedback']);
+    const quoteIndex = headerIndex_(headers, ['preventivo', 'prev']);
+    const contractIndex = headerIndex_(headers, ['contratto']);
     if (dateIndex < 0 || feedbackIndex < 0) return;
 
-    const width = Math.max(dateIndex, feedbackIndex, sourceIndex) + 1;
+    const relevantIndexes = [dateIndex, clientIndex, phoneIndex, sourceIndex, cityIndex, interestIndex, leadIdIndex, feedbackIndex, quoteIndex, contractIndex].filter(function (index) { return index >= 0; });
+    const width = Math.max.apply(null, relevantIndexes) + 1;
     const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, width).getValues();
-    rows.forEach(function (row) {
+    rows.forEach(function (row, rowIndex) {
       const date = parseDate_(row[dateIndex]);
       if (!date) return;
       const feedback = row[feedbackIndex];
       result.push({
+        id: [source.seller, leadIdIndex >= 0 && row[leadIdIndex] ? String(row[leadIdIndex]).trim() : [source.sheet, rowIndex + 2].join('-')].join('-'),
         date: date,
         seller: source.seller,
         channel: sourceIndex >= 0 ? normalizeSource_(row[sourceIndex]) : 'Non indicata',
-        managed: feedback !== null && feedback !== '' && String(feedback).trim() !== ''
+        client: clientIndex >= 0 ? String(row[clientIndex] || '').trim() : '',
+        phone: phoneIndex >= 0 ? normalizePhone_(row[phoneIndex]) : '',
+        city: cityIndex >= 0 ? cleanLeadCity_(row[cityIndex]) : '',
+        interest: interestIndex >= 0 ? String(row[interestIndex] || '').trim() : '',
+        managed: feedback !== null && feedback !== '' && String(feedback).trim() !== '',
+        quote: quoteIndex >= 0 ? sheetBoolean_(row[quoteIndex]) : false,
+        contract: contractIndex >= 0 ? sheetBoolean_(row[contractIndex]) : false
       });
     });
   });
   return result;
+}
+
+function headerIndex_(headers, aliases) {
+  for (let i = 0; i < aliases.length; i += 1) {
+    const index = headers.indexOf(aliases[i]);
+    if (index >= 0) return index;
+  }
+  return -1;
+}
+
+function sheetBoolean_(value) {
+  if (value === true) return true;
+  const normalized = String(value || '').trim().toLowerCase();
+  return ['true', '1', 'si', 'sì', 'yes', 'x'].indexOf(normalized) >= 0;
+}
+
+function linkCalendarAppointmentsToLeadManagement_(leads, appointments) {
+  const leadByPhone = {};
+  const leadByName = {};
+  leads.forEach(function (lead) {
+    addContactIndex_(leadByPhone, lead.phone, lead);
+    addContactIndex_(leadByName, contactNameKey_(lead.client), lead);
+  });
+
+  appointments.forEach(function (appointment) {
+    const matchedLead = findContactBefore_(leadByPhone, leadByName, appointment.phone, appointment.client, appointment.start);
+    if (!matchedLead) return;
+    matchedLead.calendarAppointment = true;
+    matchedLead.calendarAppointmentCount = (matchedLead.calendarAppointmentCount || 0) + 1;
+    if (appointment.status === 'presented') matchedLead.calendarShow = true;
+    if (!matchedLead.calendarAppointmentDate || appointment.start > matchedLead.calendarAppointmentDate) {
+      matchedLead.calendarAppointmentDate = appointment.start;
+      matchedLead.calendarAppointmentStatus = appointment.status;
+    }
+  });
 }
 
 function aggregateLeadManagement_(rows) {
@@ -284,6 +336,36 @@ function aggregateLeadManagement_(rows) {
   });
   return Object.keys(grouped).map(function (key) { return grouped[key]; }).sort(function (a, b) {
     return a.year - b.year || a.month - b.month || a.week - b.week || a.seller.localeCompare(b.seller) || a.channel.localeCompare(b.channel);
+  });
+}
+
+function serializeLeadItems_(rows) {
+  return rows.map(function (row) {
+    const item = {
+      id: row.id,
+      date: row.date.toISOString(),
+      year: row.date.getFullYear(),
+      month: row.date.getMonth() + 1,
+      week: weekOfMonth_(row.date),
+      client: row.client,
+      interest: row.interest,
+      city: row.city,
+      province: 'Da classificare',
+      region: 'Da classificare',
+      channel: row.channel,
+      seller: titleCaseWords_(row.seller),
+      managed: row.managed,
+      appointment: row.calendarAppointment === true,
+      appointmentCount: row.calendarAppointmentCount || 0,
+      show: row.calendarShow === true,
+      quote: row.quote,
+      contract: row.contract
+    };
+    if (row.calendarAppointmentDate) item.appointmentDate = row.calendarAppointmentDate.toISOString();
+    if (row.calendarAppointmentStatus) item.appointmentStatus = row.calendarAppointmentStatus;
+    return item;
+  }).sort(function (a, b) {
+    return b.date.localeCompare(a.date) || a.seller.localeCompare(b.seller);
   });
 }
 
