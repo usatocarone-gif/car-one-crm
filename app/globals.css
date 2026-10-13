@@ -323,6 +323,21 @@ button { font: inherit; }
 .ai-metric.managed > strong { color: var(--success); }
 .ai-metric.warm > strong { color: var(--warning); }
 .ai-metric.cold > strong { color: #667085; }
+.daily-lead-execution { margin-top: 14px; overflow-x: auto; }
+.daily-lead-execution > header { align-items: center; }
+.daily-execution-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+.daily-execution-summary .metric-card { box-shadow: none; }
+.daily-seller-table { min-width: 980px; }
+.daily-seller-table .data-row { grid-template-columns: minmax(150px, 1.2fr) repeat(6, minmax(100px, .78fr)); }
+.daily-score { font-size: 15px; }
+.daily-score.good { color: var(--success); }
+.daily-score.warning { color: var(--warning); }
+.daily-score.critical { color: var(--brand); }
+.daily-score.neutral { color: var(--muted); }
+.lead-badge.daily-status.good { color: #12664e; background: #e8f6f1; }
+.lead-badge.daily-status.warning { color: #855005; background: #fff2d8; }
+.lead-badge.daily-status.critical { color: #a6121e; background: #fff0f1; }
+.lead-badge.daily-status.neutral { color: #4b5565; background: #eef0f3; }
 .ai-lead-filters { margin-top: 14px; justify-content: space-between; }
 .ai-filter-buttons { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .ai-filter-buttons button { min-height: 38px; }
@@ -367,6 +382,7 @@ button { font: inherit; }
   .dashboard-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .channel-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ai-lead-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .daily-execution-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .lead-management-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .lead-management-bars { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .business-overview { grid-template-columns: 1fr; }
@@ -417,4 +433,5 @@ button { font: inherit; }
   .social-metrics, .sales-metrics { grid-template-columns: 1fr; }
   .lead-management-summary { grid-template-columns: 1fr 1fr; }
   .ai-lead-kpis { grid-template-columns: 1fr 1fr; }
+  .daily-execution-summary { grid-template-columns: 1fr 1fr; }
 }
