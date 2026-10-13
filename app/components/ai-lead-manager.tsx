@@ -6,7 +6,7 @@ import type { DashboardPayload, LeadItem } from "@/lib/types";
 import { LEAD_MANAGER_SELLERS } from "@/lib/lead-manager/config";
 import { calculateLeadScore, getLeadOperationalStatus, getNextLeadAction, type LeadTemperature } from "@/lib/lead-manager/scoring";
 
-type FilterKey = "all" | "hot" | "warm" | "cold" | "unmanaged" | "managed";
+type FilterKey = "today" | "all" | "hot" | "warm" | "cold" | "unmanaged" | "managed";
 
 type ScoredLead = LeadItem & ReturnType<typeof calculateLeadScore> & {
   operationalStatus: ReturnType<typeof getLeadOperationalStatus>;
@@ -15,6 +15,7 @@ type ScoredLead = LeadItem & ReturnType<typeof calculateLeadScore> & {
 
 const PAGE_SIZE = 50;
 const FILTER_OPTIONS: Array<[FilterKey, string]> = [
+  ["today", "Oggi"],
   ["all", "Tutti"],
   ["hot", "Caldi"],
   ["warm", "Tiepidi"],
@@ -54,7 +55,7 @@ export function AILeadManagerView({ payload }: { payload: DashboardPayload }) {
     const parsed = new Date(payload.lastUpdated);
     return Number.isNaN(parsed.valueOf()) ? new Date() : parsed;
   }, [payload.lastUpdated]);
-  const [filter, setFilter] = useState<FilterKey>("all");
+  const [filter, setFilter] = useState<FilterKey>("today");
   const [seller, setSeller] = useState("all");
   const [page, setPage] = useState(1);
 
@@ -68,6 +69,7 @@ export function AILeadManagerView({ payload }: { payload: DashboardPayload }) {
 
   const filteredLeads = scoredLeads.filter((lead) => {
     if (seller !== "all" && lead.seller !== seller) return false;
+    if (filter === "today" && !sameDay(new Date(lead.date), anchorDate)) return false;
     if (filter === "hot" && lead.temperature !== "CALDO") return false;
     if (filter === "warm" && lead.temperature !== "TIEPIDO") return false;
     if (filter === "cold" && lead.temperature !== "FREDDO") return false;
@@ -79,7 +81,11 @@ export function AILeadManagerView({ payload }: { payload: DashboardPayload }) {
   const pageCount = Math.max(1, Math.ceil(filteredLeads.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount);
   const visibleLeads = filteredLeads.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
-  const todayLeads = scoredLeads.filter((lead) => sameDay(new Date(lead.date), anchorDate)).length;
+  const todayItems = scoredLeads.filter((lead) => sameDay(new Date(lead.date), anchorDate));
+  const todayLeads = todayItems.length;
+  const todayWorked = todayItems.filter((lead) => lead.managed).length;
+  const todayUnmanaged = todayLeads - todayWorked;
+  const todayScore = todayLeads ? Math.round(todayWorked / todayLeads * 100) : null;
   const worked = scoredLeads.filter((lead) => lead.managed).length;
   const unmanaged = scoredLeads.length - worked;
   const hot = scoredLeads.filter((lead) => lead.temperature === "CALDO").length;
@@ -100,6 +106,29 @@ export function AILeadManagerView({ payload }: { payload: DashboardPayload }) {
         <AiMetric label="Freddi" value={cold} detail="score 0–39" tone="cold" />
         <AiMetric label="Appuntamenti" value={appointments} detail="solo Google Calendar" />
       </div>
+
+      <section className="panel table-panel daily-lead-execution">
+        <header><div><h3>Gestione lead di oggi</h3><p>Score basato esclusivamente sui lead lavorati entro la giornata · aggiornato alle {new Intl.DateTimeFormat("it-IT", { hour: "2-digit", minute: "2-digit" }).format(anchorDate)}</p></div><Users size={19} /></header>
+        <div className="daily-execution-summary">
+          <AiMetric label="Assegnati oggi" value={todayLeads} detail="lead entrati nella giornata" />
+          <AiMetric label="Lavorati oggi" value={todayWorked} detail={formatPercentage(todayWorked, todayLeads)} tone="managed" />
+          <AiMetric label="Da lavorare entro le 23:59" value={todayUnmanaged} detail="feedback ancora vuoto" tone={todayUnmanaged ? "attention" : "managed"} />
+          <AiMetric label="Score squadra" value={todayScore === null ? "n.d." : `${todayScore}/100`} detail={todayLeads ? "provvisorio fino a fine giornata" : "nessun lead assegnato oggi"} tone={todayScore !== null && todayScore >= 90 ? "managed" : todayScore !== null ? "attention" : undefined} />
+        </div>
+        <div className="data-table daily-seller-table"><div className="data-row data-head"><span>Venditore</span><span>Lead oggi</span><span>Lavorati</span><span>Da lavorare</span><span>Copertura</span><span>Score giornaliero</span><span>Stato</span></div>
+          {LEAD_MANAGER_SELLERS.map((name) => {
+            const assigned = todayItems.filter((lead) => lead.seller === name);
+            const managed = assigned.filter((lead) => lead.managed).length;
+            const pending = assigned.length - managed;
+            const score = assigned.length ? Math.round(managed / assigned.length * 100) : null;
+            const status = score === null ? "Nessun lead" : pending === 0 ? "Completo" : managed === 0 ? "Da iniziare" : "In corso";
+            const tone = score === null ? "neutral" : score >= 90 ? "good" : score >= 70 ? "warning" : "critical";
+            return <div className="data-row" key={name}><b>{name}</b><strong>{assigned.length}</strong><span>{managed}</span><strong className={pending ? "management-alert" : "good"}>{pending}</strong><span>{formatPercentage(managed, assigned.length)}</span><strong className={`daily-score ${tone}`}>{score === null ? "n.d." : `${score}/100`}</strong><span><i className={`lead-badge daily-status ${tone}`}>{status}</i></span></div>;
+          })}
+          <div className="data-row data-total"><b>SQUADRA</b><strong>{todayLeads}</strong><strong>{todayWorked}</strong><strong>{todayUnmanaged}</strong><strong>{formatPercentage(todayWorked, todayLeads)}</strong><strong>{todayScore === null ? "n.d." : `${todayScore}/100`}</strong><span>Chiusura 23:59</span></div>
+        </div>
+        <div className="notice"><CircleAlert size={17} /><span>Lo score è una fotografia operativa della giornata: misura la compilazione del feedback sui lead ricevuti oggi. Appuntamenti e contratti non incidono ancora sul punteggio.</span></div>
+      </section>
 
       <section className="filter-bar ai-lead-filters">
         <div className="ai-filter-buttons" aria-label="Filtra lead">
@@ -128,7 +157,7 @@ export function AILeadManagerView({ payload }: { payload: DashboardPayload }) {
       </section>
 
       <section className="panel table-panel ai-seller-execution">
-        <header><div><h3>Esecuzione Lead per Venditore</h3><p>Qualità del lead e qualità dell&apos;esecuzione restano indicatori distinti</p></div><Users size={19} /></header>
+        <header><div><h3>Esecuzione mensile per venditore</h3><p>Riepilogo del mese corrente, separato dallo score operativo giornaliero</p></div><Users size={19} /></header>
         <div className="data-table"><div className="data-row data-head"><span>Venditore</span><span>Lead assegnati</span><span>Lavorati</span><span>Non lavorati</span><span>% lavorazione</span><span>Appuntamenti</span></div>
           {LEAD_MANAGER_SELLERS.map((name) => {
             const assigned = scoredLeads.filter((lead) => lead.seller === name);
