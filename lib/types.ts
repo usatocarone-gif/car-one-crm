@@ -45,6 +45,10 @@ export type DashboardPayload = {
   todayAgenda: AppointmentItem[];
   upcomingAgenda?: Array<AppointmentItem & { date: string }>;
   quoteHistory?: QuoteHistoryItem[];
+  operationalQuotes?: OperationalQuote[];
+  operationalQuotesError?: string;
+  operationalQuotesUpdatedAt?: string;
+  quoteCalendar?: Record<string, boolean>;
   weeklyHistory?: WeeklyCommercialItem[];
   dailyHistory?: DailyCommercialItem[];
   socialAppointmentHistory?: SocialAppointmentHistoryItem[];
@@ -69,6 +73,12 @@ export type DashboardPayload = {
   leadItems?: LeadItem[];
   contractHistory: ContractHistoryItem[];
   channelAnalysis?: ChannelAnalysis;
+};
+
+export type OperationalQuote = {
+  id: string; date: string; seller: string; client: string; vehicle: string;
+  status: string; lastFollowup: string | null; nextFollowup: string | null;
+  note: string; url: string;
 };
 
 export type LeadDailyQualityItem = {

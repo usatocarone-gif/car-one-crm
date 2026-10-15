@@ -8,6 +8,7 @@ import { AILeadManagerView } from "@/app/components/ai-lead-manager";
 import { LeadDailyQualityPanel } from "@/app/components/lead-daily-quality";
 import { LEAD_REGION_CLUSTERS, leadCityCluster, leadRegionCluster } from "@/lib/lead-geography";
 import { DashboardLeadManagement } from "@/app/components/dashboard-lead-management";
+import { OperationalQuotes } from "@/app/components/operational-quotes";
 
 const menu = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -1090,6 +1091,11 @@ function QuoteWeeklyPanel({ quotes, contracts, previousQuotes, previousContracts
 }
 
 function QuotesView({ payload }: { payload: DashboardPayload }) {
+  const [view, setView] = useState("operations");
+  return <><div className="quote-view-switch" role="group" aria-label="Vista preventivi"><button aria-pressed={view === "operations"} onClick={() => setView("operations")}>Controllo trattative</button><button aria-pressed={view === "history"} onClick={() => setView("history")}>Analisi e storico</button></div><div hidden={view !== "operations"}><OperationalQuotes payload={payload} /></div><div hidden={view !== "history"}><QuotesHistoryView payload={payload} /></div></>;
+}
+
+function QuotesHistoryView({ payload }: { payload: DashboardPayload }) {
   const history = payload.quoteHistory ?? [];
   const soldContracts = payload.contractHistory ?? [];
   const now = new Date();
