@@ -49,7 +49,7 @@ function AiMetric({ label, value, detail, tone }: { label: string; value: number
   return <article className={`metric-card ai-metric ${tone ?? ""}`}><span>{label}</span><strong>{value}</strong><footer><small>{detail}</small></footer></article>;
 }
 
-export function AILeadManagerView({ payload }: { payload: DashboardPayload }) {
+export function AILeadManagerView({ payload, embedded = false }: { payload: DashboardPayload; embedded?: boolean }) {
   const leadItems = payload.leadItems;
   const anchorDate = useMemo(() => {
     const parsed = new Date(payload.lastUpdated);
@@ -95,7 +95,7 @@ export function AILeadManagerView({ payload }: { payload: DashboardPayload }) {
   const resetPage = () => setPage(1);
 
   return <>
-    <header className="page-head"><div><p className="eyebrow">Controllo operativo</p><h1>AI Lead Manager</h1><span>Scoring deterministico, prossima azione ed esecuzione venditori · appuntamenti solo da Google Calendar</span></div></header>
+    {embedded ? <header className="panel lead-operational-intro"><h3>Lead da lavorare</h3><p>Lead di {new Intl.DateTimeFormat("it-IT", { month: "long", year: "numeric" }).format(anchorDate)}. Priorità e filtri operativi; appuntamenti da Google Calendar.</p></header> : <header className="page-head"><div><p className="eyebrow">Controllo operativo</p><h1>AI Lead Manager</h1><span>Scoring deterministico, prossima azione ed esecuzione venditori · appuntamenti solo da Google Calendar</span></div></header>}
     {leadItems === undefined ? <section className="placeholder compact"><BrainCircuit size={32} /><h2>Dati operativi dettagliati non disponibili</h2><p>La pagina è pronta, ma l&apos;API attuale espone soltanto aggregati. Pubblica la nuova versione dell&apos;Apps Script per caricare le righe lead reali.</p></section> : <>
       <div className="metrics-grid ai-lead-kpis">
         <AiMetric label="Lead oggi" value={todayLeads} detail="entrati oggi" />

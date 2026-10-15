@@ -7,16 +7,16 @@ import { snapshot } from "@/lib/snapshot";
 import { AILeadManagerView } from "@/app/components/ai-lead-manager";
 import { LeadDailyQualityPanel } from "@/app/components/lead-daily-quality";
 import { LEAD_REGION_CLUSTERS, leadCityCluster, leadRegionCluster } from "@/lib/lead-geography";
+import { DashboardLeadManagement } from "@/app/components/dashboard-lead-management";
 
 const menu = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "ai-lead-manager", label: "AI Lead Manager", icon: BrainCircuit },
-  { id: "channels", label: "Canali", icon: GitBranch },
-  { id: "sources", label: "Lead", icon: TrendingUp },
-  { id: "agenda", label: "Appuntamenti social", icon: CalendarDays },
+  { id: "sources", label: "Gestione lead", icon: Users },
+  { id: "agenda", label: "Appuntamenti", icon: CalendarDays },
   { id: "quotes", label: "Preventivi", icon: FileText },
   { id: "contracts", label: "Contratti", icon: FileCheck2 },
-  { id: "sellers", label: "Conversione venditori", icon: BarChart3 },
+  { id: "sellers", label: "Venditori", icon: BarChart3 },
+  { id: "channels", label: "Marketing e canali", icon: GitBranch },
 ];
 const SALES_TEAM = ["Caironi", "Grandolini", "Liguori", "Monacelli", "Bordini", "Pagliara"];
 
@@ -467,7 +467,7 @@ function selectedLeadContracts(payload: DashboardPayload, period: PeriodKey, sta
   return cohorts.filter((item) => buckets.has(`${item.year}-${item.month}-${item.week}`)).reduce((sum, item) => sum + item.contracts, 0);
 }
 
-function Dashboard({ payload, period, setPeriod }: { payload: DashboardPayload; period: PeriodKey; setPeriod: (period: PeriodKey) => void }) {
+function Dashboard({ payload, period, setPeriod, onOpenLeads }: { payload: DashboardPayload; period: PeriodKey; setPeriod: (period: PeriodKey) => void; onOpenLeads: () => void }) {
   const now = new Date();
   const [dayValue, setDayValue] = useState(now.toISOString().slice(0, 10));
   const [weekValue, setWeekValue] = useState(now.toISOString().slice(0, 10));
@@ -501,6 +501,7 @@ function Dashboard({ payload, period, setPeriod }: { payload: DashboardPayload; 
       <AppointmentsPanel payload={payload} />
       <section className="panel"><header><div><h3>Performance venditori</h3><p>Contratti Car One + AD Motor</p></div><BarChart3 size={19} /></header><div className="seller-list">{data.sellers.length ? data.sellers.map((seller) => <div className="seller-row" key={seller.name}><div><b>{seller.name}</b><span>{seller.carOne} Car One · {seller.adMotor} AD</span></div><strong>{seller.contracts}</strong><div className="track"><i style={{ width: `${Math.max(8, seller.contracts / Math.max(...data.sellers.map((s) => s.contracts)) * 100)}%` }} /></div></div>) : <div className="empty-compact">I risultati venditore sono disponibili nelle viste settimanale e mensile.</div>}</div></section>
     </div>
+    <DashboardLeadManagement payload={payload} month={anchorValue.slice(0,7)} onOpen={onOpenLeads} />
   </>;
 }
 
@@ -558,7 +559,17 @@ function LeadManagementPanel({ current, previous, sourceLeadTotal, comparisonEna
   </section>;
 }
 
-function SourcesView({ payload }: { payload: DashboardPayload }) {
+function LeadWorkspace({ payload }: { payload: DashboardPayload }) {
+  const [view, setView] = useState("overview");
+  return <>
+    <header className="page-head"><div><p className="eyebrow">Controllo commerciale</p><h1>Gestione lead</h1><span>Risultati dei venditori, prime scadenze e lead da lavorare</span></div></header>
+    <div className="lead-workspace-tabs" role="group" aria-label="Vista gestione lead"><button aria-pressed={view === "overview"} onClick={() => setView("overview")}>Riepilogo e scadenze</button><button aria-pressed={view === "operational"} onClick={() => setView("operational")}>Elenco operativo</button></div>
+    <div hidden={view !== "overview"}><SourcesView payload={payload} embedded /></div>
+    <div hidden={view !== "operational"}><AILeadManagerView payload={payload} embedded /></div>
+  </>;
+}
+
+function SourcesView({ payload, embedded = false }: { payload: DashboardPayload; embedded?: boolean }) {
   const history = (payload.leadHistory ?? []).map(item => ({ ...item, city: leadCityCluster(item.city), region: leadRegionCluster(item.region), geoClassified: item.region !== "Da classificare" }));
   const management = payload.leadManagement ?? [];
   const years = [...new Set(history.map((item) => item.year))].sort((a, b) => b - a);
@@ -616,7 +627,7 @@ function SourcesView({ payload }: { payload: DashboardPayload }) {
   ).reduce((sum, item) => sum + item.leads, 0);
 
   return <>
-    <header className="page-head"><div><p className="eyebrow">Acquisizione</p><h1>Lead e gestione commerciale</h1><span>Provenienza, territorio e lavorazione dei lead assegnati ai venditori</span></div></header>
+    {!embedded && <header className="page-head"><div><p className="eyebrow">Acquisizione</p><h1>Lead e gestione commerciale</h1><span>Provenienza, territorio e lavorazione dei lead assegnati ai venditori</span></div></header>}
     <section className="filter-bar">
       <label><span>Anno</span><select value={year} onChange={(event) => setYear(event.target.value)}><option value="all">Tutti</option>{years.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
       <label><span>Mese</span><select value={month} onChange={(event) => setMonth(event.target.value)}><option value="all">Tutti</option>{MONTHS.map((item, index) => <option value={index + 1} key={item}>{item}</option>)}</select></label>
@@ -637,6 +648,7 @@ function SourcesView({ payload }: { payload: DashboardPayload }) {
     </> : null}
     <LeadDailyQualityPanel items={payload.leadDailyQuality} error={payload.leadDailyQualityError} year={year} month={month} />
     {history.length ? <>
+      <details className="lead-analysis-details"><summary>Approfondimenti: canali e territorio</summary>
       <div className="history-grid source-history-grid">
         <section className="panel"><header><div><h3>Andamento mensile</h3><p>Volumi e stagionalità dei lead</p></div><TrendingUp size={19} /></header><BarList rows={byMonth} maxRows={18} /></section>
         <section className="panel"><header><div><h3>Canali di acquisizione</h3><p>Facebook, Instagram, TikTok e altri</p></div><BarChart3 size={19} /></header><BarList rows={byChannel} /></section>
@@ -658,6 +670,7 @@ function SourcesView({ payload }: { payload: DashboardPayload }) {
         </div>
         <div className="notice"><CircleAlert size={17} /><span>“Altro” comprende le altre regioni e le località da verificare. Il conteggio “Zone classificate” resta separato: accorpare non significa classificare una località sconosciuta.</span></div>
       </section>
+      </details>
     </> : <section className="placeholder compact"><CircleAlert size={30} /><h2>Storico lead in attesa</h2><p>Aggiorna Apps Script alla versione cluster per caricare le tab mensili di Make Leads.</p></section>}
   </>;
 }
@@ -1348,6 +1361,6 @@ export default function Home() {
 
   return <main className="app-shell">
     <aside className="sidebar"><div className="brand"><i /><div><strong>Car One CRM</strong><span>Usato · Perugia</span></div></div><nav>{menu.map(({ id, label, icon: Icon }) => <button key={id} className={section === id ? "active" : ""} onClick={() => setSection(id)}><Icon size={18} /><span>{label}</span></button>)}</nav><footer><CheckCircle2 size={15} /><div><strong>{payload.source === "google-live" ? "Google live · 5 min" : "Snapshot verificato"}</strong><span>{updated || "Caricamento…"}</span></div><button aria-label="Aggiorna dati" onClick={() => void refresh()} disabled={loading}><RefreshCw size={15} className={loading ? "spin" : ""} /></button></footer></aside>
-    <section className="content">{section === "dashboard" ? <Dashboard payload={payload} period={period} setPeriod={setPeriod} /> : section === "ai-lead-manager" ? <AILeadManagerView payload={payload} /> : section === "channels" ? <ChannelsView payload={payload} /> : section === "sources" ? <SourcesView payload={payload} /> : section === "agenda" ? <SocialAppointmentsView payload={payload} /> : section === "quotes" ? <QuotesView payload={payload} /> : section === "contracts" ? <ContractsView payload={payload} /> : section === "sellers" ? <SellersView payload={payload} /> : <Placeholder section={section} />}</section>
+    <section className="content">{section === "dashboard" ? <Dashboard payload={payload} period={period} setPeriod={setPeriod} onOpenLeads={() => setSection("sources")} /> : section === "ai-lead-manager" ? <LeadWorkspace payload={payload} /> : section === "channels" ? <ChannelsView payload={payload} /> : section === "sources" ? <LeadWorkspace payload={payload} /> : section === "agenda" ? <SocialAppointmentsView payload={payload} /> : section === "quotes" ? <QuotesView payload={payload} /> : section === "contracts" ? <ContractsView payload={payload} /> : section === "sellers" ? <SellersView payload={payload} /> : <Placeholder section={section} />}</section>
   </main>;
 }
