@@ -5,6 +5,7 @@ import { BarChart3, BrainCircuit, CalendarDays, CheckCircle2, CircleAlert, Euro,
 import type { AppointmentItem, ChannelCohortItem, ContractHistoryItem, DashboardPayload, DashboardPeriod, LeadHistoryItem, LeadManagementItem, PeriodKey, QuoteHistoryItem, ShowRateHistoryItem, SocialAppointmentHistoryItem } from "@/lib/types";
 import { snapshot } from "@/lib/snapshot";
 import { AILeadManagerView } from "@/app/components/ai-lead-manager";
+import { LeadDailyQualityPanel } from "@/app/components/lead-daily-quality";
 
 const menu = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -527,7 +528,7 @@ function LeadManagementPanel({ current, previous, sourceLeadTotal, comparisonEna
   const previousRate = previousTotals.total ? previousTotals.managed / previousTotals.total * 100 : null;
 
   return <section className="panel lead-management-panel">
-    <header><div><h3>Gestione lead per venditore</h3><p>Feedback valorizzato = gestito · feedback vuoto = non gestito</p></div><CheckCircle2 size={19} /></header>
+    <header><div><h3>Gestione lead attuale per venditore</h3><p>Feedback presente oggi, inclusi i recuperi successivi alla scadenza</p></div><CheckCircle2 size={19} /></header>
     {rows.length ? <>
       <div className="lead-management-summary">
         <article><span>Righe nei fogli venditori</span><strong>{totals.total}</strong><small>{sourceLeadTotal ? `${sourceLeadTotal} lead Make Leads nello stesso filtro` : "Periodo senza totale Make Leads"}</small></article>
@@ -615,6 +616,7 @@ function SourcesView({ payload }: { payload: DashboardPayload }) {
       <label><span>Regione</span><select value={region} onChange={(event) => setRegion(event.target.value)}><option value="all">Tutte</option>{regions.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
       <button onClick={() => { setYear("all"); setMonth("all"); setChannel("all"); setRegion("all"); }}>Azzera filtri</button>
     </section>
+    <LeadDailyQualityPanel items={payload.leadDailyQuality} error={payload.leadDailyQualityError} year={year} month={month} />
     {history.length ? <>
       <div className="metrics-grid source-metrics">
         <Metric label="Lead analizzati" value={total} primary={`${byChannel.length} canali`} secondary="nel periodo filtrato" />

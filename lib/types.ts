@@ -64,9 +64,25 @@ export type DashboardPayload = {
   }>;
   leadHistory: LeadHistoryItem[];
   leadManagement?: LeadManagementItem[];
+  leadDailyQuality?: LeadDailyQualityItem[];
+  leadDailyQualityError?: string;
   leadItems?: LeadItem[];
   contractHistory: ContractHistoryItem[];
   channelAnalysis?: ChannelAnalysis;
+};
+
+export type LeadDailyQualityItem = {
+  date: string;
+  seller: string;
+  name: string;
+  due: number;
+  managedWithinDay: number;
+  missingAtDeadline: number;
+  rate: number | null;
+  recovered: number;
+  backlog: number;
+  measurement: "evening-observation" | "reconstructed";
+  note: string;
 };
 
 export type LeadManagementItem = {

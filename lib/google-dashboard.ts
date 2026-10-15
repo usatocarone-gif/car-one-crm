@@ -1,4 +1,5 @@
 import { google } from "googleapis";
+import { parseLeadDailyQuality } from "./lead-daily-quality";
 import type { AppointmentItem, DashboardPayload, DashboardPeriod, SellerResult } from "./types";
 
 const SELLERS = ["CAIRONI", "GRANDOLINI", "LIGUORI", "MONACELLI", "BORDINI", "PAGLIARA"];
@@ -83,6 +84,15 @@ export function googleIsConfigured() {
     process.env.GOOGLE_SALES_SPREADSHEET_ID &&
     process.env.GOOGLE_CALENDAR_ID
   );
+}
+
+export async function loadGoogleLeadDailyQuality() {
+  const sheets = google.sheets({ version: "v4", auth: auth() });
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: process.env.GOOGLE_SALES_CONTROL_SPREADSHEET_ID || "19XAvwQY9gg1yCC-FSkfCwiqaS9bmNiHQhuhuaoB6rHA",
+    range: "STORICO_V2!A:M", valueRenderOption: "UNFORMATTED_VALUE",
+  });
+  return parseLeadDailyQuality(response.data.values ?? []);
 }
 
 export async function loadGoogleDashboard(now = new Date()): Promise<DashboardPayload> {

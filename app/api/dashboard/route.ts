@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { googleIsConfigured, loadGoogleDashboard } from "@/lib/google-dashboard";
+import { googleIsConfigured, loadGoogleDashboard, loadGoogleLeadDailyQuality } from "@/lib/google-dashboard";
 import { snapshot } from "@/lib/snapshot";
 import { resolveItalianGeo } from "@/lib/italian-geo";
 import type { DashboardPayload } from "@/lib/types";
@@ -41,7 +41,18 @@ export async function GET() {
       payload = await loadGoogleDashboard();
     }
 
-    return NextResponse.json(enrichLeadHistory(payload as DashboardPayload), {
+    const result: DashboardPayload = { ...payload };
+    if (result.leadDailyQuality === undefined && process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_PRIVATE_KEY) {
+      try {
+        result.leadDailyQuality = await loadGoogleLeadDailyQuality();
+        delete result.leadDailyQualityError;
+      } catch {
+        // Un errore dello storico non deve sostituire tutti i dati live con lo snapshot.
+        result.leadDailyQuality = undefined;
+        result.leadDailyQualityError = "Storico del primo giorno non disponibile: verificare collegamento e accesso al database commerciale.";
+      }
+    }
+    return NextResponse.json(enrichLeadHistory(result), {
       headers: { "Cache-Control": "no-store, max-age=0" },
     });
   } catch (error) {
