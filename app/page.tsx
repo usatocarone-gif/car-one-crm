@@ -6,6 +6,7 @@ import type { AppointmentItem, ChannelCohortItem, ContractHistoryItem, Dashboard
 import { snapshot } from "@/lib/snapshot";
 import { AILeadManagerView } from "@/app/components/ai-lead-manager";
 import { LeadDailyQualityPanel } from "@/app/components/lead-daily-quality";
+import { LEAD_REGION_CLUSTERS, leadCityCluster, leadRegionCluster } from "@/lib/lead-geography";
 
 const menu = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -291,7 +292,13 @@ function CommercialTrend({ payload, period, anchorValue }: { payload: DashboardP
       </svg>
       {activePoint ? <div className="trend-tooltip" style={{ left: `${Math.min(92, Math.max(8, (x(active ?? 0) / width) * 100))}%` }}><b>{activePoint.label}</b><span>Contratti {activePoint.actualContracts ?? "—"}</span><span>Preventivi {activePoint.actualQuotes ?? "—"}</span><span>Conversione {activePoint.conversion === null ? "—" : `${formatNumber(activePoint.conversion)}%`}</span><span>Contratti anno scorso {formatNumber(activePoint.previousContracts)}</span><span>Preventivi anno scorso {formatNumber(activePoint.previousQuotes)}</span><span>Obiettivo {activePoint.target === null ? "—" : formatNumber(activePoint.target)}</span><span>Forecast {activePoint.forecast === null ? "—" : formatNumber(activePoint.forecast)}</span></div> : null}
     </div> : <div className="empty-compact">Il grafico sarà disponibile quando lo storico contratti live è caricato.</div>}
-    <div className="trend-legend"><span><i className="actual" />Contratti</span><span><i className="quotes" />Preventivi</span><span><i className="forecast" />Forecast contratti</span><span><i className="target" />Ritmo obiettivo</span><span><i className="previous" />Stesso periodo anno scorso</span></div>
+    <div className="trend-legend" aria-label="Legenda delle serie visibili">
+      {(mode === "overview" || mode === "contracts") && <><span><i className="actual" />Contratti</span><span><i className="forecast" />Forecast contratti</span>{trend.target && <span><i className="target" />Ritmo obiettivo</span>}</>}
+      {(mode === "overview" || mode === "quotes") && <span><i className="quotes" />Preventivi</span>}
+      {mode === "quotes" && <span><i className="quote-previous" />Preventivi anno scorso</span>}
+      {mode === "contracts" && <span><i className="previous" />Contratti anno scorso</span>}
+      {mode === "conversion" && <><span><i className="conversion" />Conversione %</span><span><i className="previous" />Conversione % anno scorso</span></>}
+    </div>
   </section>;
 }
 
@@ -552,7 +559,7 @@ function LeadManagementPanel({ current, previous, sourceLeadTotal, comparisonEna
 }
 
 function SourcesView({ payload }: { payload: DashboardPayload }) {
-  const history = payload.leadHistory ?? [];
+  const history = (payload.leadHistory ?? []).map(item => ({ ...item, city: leadCityCluster(item.city), region: leadRegionCluster(item.region), geoClassified: item.region !== "Da classificare" }));
   const management = payload.leadManagement ?? [];
   const years = [...new Set(history.map((item) => item.year))].sort((a, b) => b - a);
   const currentYear = new Date().getFullYear();
@@ -562,7 +569,7 @@ function SourcesView({ payload }: { payload: DashboardPayload }) {
   const [channel, setChannel] = useState("all");
   const [region, setRegion] = useState("all");
   const channels = [...new Set(history.map((item) => item.channel))].sort();
-  const regions = [...new Set(history.map((item) => item.region))].sort((a, b) => a === "Da classificare" ? 1 : b === "Da classificare" ? -1 : a.localeCompare(b));
+  const regions = LEAD_REGION_CLUSTERS;
   const filtered = history.filter((item) =>
     (year === "all" || item.year === Number(year)) &&
     (month === "all" || item.month === Number(month)) &&
@@ -571,7 +578,8 @@ function SourcesView({ payload }: { payload: DashboardPayload }) {
   );
   const total = filtered.reduce((sum, item) => sum + item.leads, 0);
   const byChannel = sumLeadHistory(filtered, (item) => item.channel);
-  const byRegion = sumLeadHistory(filtered, (item) => item.region);
+  const regionTotals = new Map(sumLeadHistory(filtered, (item) => item.region));
+  const byRegion: Array<[string, number]> = LEAD_REGION_CLUSTERS.map(name => [name, regionTotals.get(name) ?? 0]);
   const byCity = sumLeadHistory(filtered, (item) => item.city);
   const byMonth = sumLeadHistory(filtered, (item) => `${item.year}-${String(item.month).padStart(2, "0")}`)
     .sort((a, b) => a[0].localeCompare(b[0]))
@@ -579,11 +587,11 @@ function SourcesView({ payload }: { payload: DashboardPayload }) {
       const [itemYear, itemMonth] = key.split("-").map(Number);
       return [`${MONTHS[itemMonth - 1]} ${String(itemYear).slice(-2)}`, value] as [string, number];
     });
-  const classified = filtered.filter((item) => item.region !== "Da classificare").reduce((sum, item) => sum + item.leads, 0);
+  const classified = filtered.filter((item) => item.geoClassified).reduce((sum, item) => sum + item.leads, 0);
   const topChannel = byChannel[0];
-  const topRegion = byRegion.find(([name]) => name !== "Da classificare") ?? byRegion[0];
+  const topRegion = [...byRegion].filter(([name, value]) => name !== "Altro" && value > 0).sort((a,b) => b[1]-a[1])[0] ?? byRegion.find(([name, value]) => name === "Altro" && value > 0);
   const visibleChannels = sumLeadHistory(filtered, (item) => item.channel).slice(0, 5).map(([name]) => name);
-  const visibleRegions = byRegion.filter(([name]) => name !== "Da classificare").slice(0, 8).map(([name]) => name);
+  const visibleRegions = [...LEAD_REGION_CLUSTERS];
   const matrixValue = (regionName: string, channelName: string) => filtered
     .filter((item) => item.region === regionName && item.channel === channelName)
     .reduce((sum, item) => sum + item.leads, 0);
@@ -616,7 +624,8 @@ function SourcesView({ payload }: { payload: DashboardPayload }) {
       <label><span>Regione</span><select value={region} onChange={(event) => setRegion(event.target.value)}><option value="all">Tutte</option>{regions.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
       <button onClick={() => { setYear("all"); setMonth("all"); setChannel("all"); setRegion("all"); }}>Azzera filtri</button>
     </section>
-    <LeadDailyQualityPanel items={payload.leadDailyQuality} error={payload.leadDailyQualityError} year={year} month={month} />
+    <LeadManagementPanel current={managementCurrent} previous={managementPrevious} sourceLeadTotal={managementSourceTotal} comparisonEnabled={year !== "all"} />
+    {region !== "all" && <p className="filter-scope-note">La regione filtra acquisizione e territorio. La gestione dei venditori usa anno, mese e canale.</p>}
     {history.length ? <>
       <div className="metrics-grid source-metrics">
         <Metric label="Lead analizzati" value={total} primary={`${byChannel.length} canali`} secondary="nel periodo filtrato" />
@@ -625,12 +634,14 @@ function SourcesView({ payload }: { payload: DashboardPayload }) {
         <Metric label="Zone classificate" value={percentage(classified, total)} primary={`${classified} lead`} secondary={`${total - classified} da verificare`} />
       </div>
       <YoYComparison rows={[{ label: "Lead", current: comparisonCurrent, previous: comparisonPrevious }]} />
-      <LeadManagementPanel current={managementCurrent} previous={managementPrevious} sourceLeadTotal={managementSourceTotal} comparisonEnabled={year !== "all"} />
+    </> : null}
+    <LeadDailyQualityPanel items={payload.leadDailyQuality} error={payload.leadDailyQualityError} year={year} month={month} />
+    {history.length ? <>
       <div className="history-grid source-history-grid">
         <section className="panel"><header><div><h3>Andamento mensile</h3><p>Volumi e stagionalità dei lead</p></div><TrendingUp size={19} /></header><BarList rows={byMonth} maxRows={18} /></section>
         <section className="panel"><header><div><h3>Canali di acquisizione</h3><p>Facebook, Instagram, TikTok e altri</p></div><BarChart3 size={19} /></header><BarList rows={byChannel} /></section>
-        <section className="panel"><header><div><h3>Cluster regionali</h3><p>Lead attribuiti alle regioni italiane</p></div><Users size={19} /></header><BarList rows={byRegion} maxRows={20} /></section>
-        <section className="panel"><header><div><h3>Zone più attive</h3><p>Comuni e località dichiarate nei moduli</p></div><Target size={19} /></header><BarList rows={byCity} maxRows={15} /></section>
+        <section className="panel"><header><div><h3>Cluster regionali</h3><p>Umbria, Toscana, Marche e Lazio; tutte le altre in Altro</p></div><Users size={19} /></header><BarList rows={byRegion} showShare /></section>
+        <section className="panel"><header><div><h3>Zone più attive</h3><p>Perugia e le varianti PG sono accorpate</p></div><Target size={19} /></header><BarList rows={byCity} maxRows={15} showShare /></section>
       </div>
       <section className="panel table-panel cluster-panel">
         <header><div><h3>Matrice canale × regione</h3><p>Concentrazione geografica dei canali principali</p></div><Gauge size={19} /></header>
@@ -645,7 +656,7 @@ function SourcesView({ payload }: { payload: DashboardPayload }) {
             </div>;
           })}
         </div>
-        <div className="notice"><CircleAlert size={17} /><span>Le località non riconosciute restano nel cluster “Da classificare”. In questo modo non attribuiamo automaticamente una regione sbagliata ai dati sporchi o ambigui.</span></div>
+        <div className="notice"><CircleAlert size={17} /><span>“Altro” comprende le altre regioni e le località da verificare. Il conteggio “Zone classificate” resta separato: accorpare non significa classificare una località sconosciuta.</span></div>
       </section>
     </> : <section className="placeholder compact"><CircleAlert size={30} /><h2>Storico lead in attesa</h2><p>Aggiorna Apps Script alla versione cluster per caricare le tab mensili di Make Leads.</p></section>}
   </>;
@@ -1217,10 +1228,11 @@ function aggregate(items: ContractHistoryItem[], key: (item: ContractHistoryItem
   return [...result.entries()].sort((a, b) => b[1] - a[1]);
 }
 
-function BarList({ rows, maxRows = 12 }: { rows: Array<[string, number]>; maxRows?: number }) {
+function BarList({ rows, maxRows = 12, showShare = false }: { rows: Array<[string, number]>; maxRows?: number; showShare?: boolean }) {
   const visible = rows.slice(0, maxRows);
   const max = Math.max(1, ...visible.map((row) => row[1]));
-  return <div className="history-bars">{visible.map(([label, value]) => <div className="history-bar" key={label}><span>{label}</span><div className="track"><i style={{ width: `${value / max * 100}%` }} /></div><strong>{value}</strong></div>)}</div>;
+  const total = rows.reduce((sum, [,value]) => sum + value, 0);
+  return <div className="history-bars" role="list">{visible.map(([label, value]) => <div className="history-bar" role="listitem" key={label} title={`${label}: ${formatNumber(value)}${showShare ? ` (${percentage(value,total)})` : ""}`}><span>{label}</span><div className="track" aria-hidden="true"><i style={{ width: `${value / max * 100}%` }} /></div><strong>{formatNumber(value)}{showShare && <small>{percentage(value,total)}</small>}</strong></div>)}</div>;
 }
 
 function CurrencyBarList({ rows, maxRows = 12 }: { rows: Array<[string, number]>; maxRows?: number }) {
