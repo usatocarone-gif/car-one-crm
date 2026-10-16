@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export function middleware(request: NextRequest) {
+  // This exact POST endpoint has its own dedicated, write-only receiver credential.
+  // It fails closed when the credential is not configured; CRM pages retain Basic auth.
+  if (request.nextUrl.pathname === "/api/integrations/infocar" && request.method === "POST") {
+    return NextResponse.next();
+  }
   const expectedUser = process.env.DASHBOARD_USER;
   const expectedPassword = process.env.DASHBOARD_PASSWORD;
 
