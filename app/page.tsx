@@ -134,6 +134,17 @@ function localContractDate(value: string) {
   return new Date(year, month - 1, day);
 }
 
+function dateDay(value: string) {
+  const match = String(value).match(/^\d{4}-\d{2}-(\d{2})/);
+  if (match) return Number(match[1]);
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.valueOf()) ? 0 : parsed.getDate();
+}
+
+function isCurrentMonthSelection(year: number, month: number, now: Date) {
+  return year === now.getFullYear() && month === now.getMonth() + 1;
+}
+
 function mondayOf(date: Date) {
   const result = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   const day = result.getDay() || 7;
@@ -423,10 +434,11 @@ type BusinessMonthComparison = {
   previous: BusinessMonthMetrics;
 };
 
-function monthMetrics(payload: DashboardPayload, year: number, month: number, liveMonth: boolean): BusinessMonthMetrics {
-  const appointments = (payload.socialAppointmentHistory ?? []).filter((item) => item.year === year && item.month === month);
-  const contracts = (payload.contractHistory ?? []).filter((item) => item.year === year && item.month === month);
-  const quotes = (payload.quoteHistory ?? []).filter((item) => item.year === year && item.month === month).length;
+function monthMetrics(payload: DashboardPayload, year: number, month: number, liveMonth: boolean, cutoffDay?: number): BusinessMonthMetrics {
+  const throughCutoff = (date: string) => cutoffDay === undefined || dateDay(date) <= cutoffDay;
+  const appointments = (payload.socialAppointmentHistory ?? []).filter((item) => item.year === year && item.month === month && throughCutoff(item.date));
+  const contracts = (payload.contractHistory ?? []).filter((item) => item.year === year && item.month === month && throughCutoff(item.date));
+  const quotes = (payload.quoteHistory ?? []).filter((item) => item.year === year && item.month === month && throughCutoff(item.date)).length;
   const historyLeads = (payload.leadHistory ?? []).filter((item) => item.year === year && item.month === month).reduce((sum, item) => sum + item.leads, 0);
   const cohortLeadContracts = (payload.channelAnalysis?.leadCohorts ?? []).filter((item) => item.year === year && item.month === month).reduce((sum, item) => sum + item.contracts, 0);
   const totalContracts = contracts.length;
@@ -450,7 +462,7 @@ function buildBusinessMonthComparison(payload: DashboardPayload, period: PeriodK
   return {
     label: `${new Intl.DateTimeFormat("it-IT", { month: "long", year: "numeric" }).format(anchor)} vs ${year - 1}`,
     current: monthMetrics(payload, year, month, liveMonth),
-    previous: monthMetrics(payload, year - 1, month, false),
+    previous: monthMetrics(payload, year - 1, month, false, liveMonth ? now.getDate() : undefined),
   };
 }
 
@@ -1134,10 +1146,11 @@ function QuotesHistoryView({ payload }: { payload: DashboardPayload }) {
   const recent = [...filtered].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 12);
   const effectiveYear = year === "all" ? now.getFullYear() : Number(year);
   const effectiveMonth = month === "all" ? now.getMonth() + 1 : Number(month);
+  const comparisonCutoff = isCurrentMonthSelection(effectiveYear, effectiveMonth, now) ? now.getDate() : undefined;
   const goalItems = history.filter((item) => item.year === effectiveYear && item.month === effectiveMonth && (seller === "all" || item.seller === seller));
-  const previousItems = history.filter((item) => item.year === effectiveYear - 1 && item.month === effectiveMonth && (seller === "all" || item.seller === seller));
+  const previousItems = history.filter((item) => item.year === effectiveYear - 1 && item.month === effectiveMonth && (seller === "all" || item.seller === seller) && (comparisonCutoff === undefined || dateDay(item.date) <= comparisonCutoff));
   const goalConvertedContracts = soldContracts.filter((contract) => contract.year === effectiveYear && contract.month === effectiveMonth && (seller === "all" || contract.seller === seller));
-  const previousConvertedContracts = soldContracts.filter((contract) => contract.year === effectiveYear - 1 && contract.month === effectiveMonth && (seller === "all" || contract.seller === seller));
+  const previousConvertedContracts = soldContracts.filter((contract) => contract.year === effectiveYear - 1 && contract.month === effectiveMonth && (seller === "all" || contract.seller === seller) && (comparisonCutoff === undefined || dateDay(contract.date) <= comparisonCutoff));
   const goalConverted = goalConvertedContracts.length;
   const previousConverted = previousConvertedContracts.length;
   const goalSellers = SALES_TEAM;
@@ -1193,12 +1206,14 @@ function SellersView({ payload }: { payload: DashboardPayload }) {
   const [month, setMonth] = useState(String(now.getMonth() + 1));
   const [sellerFilter, setSellerFilter] = useState("all");
   const targetYear = Number(year);
+  const selectedMonth = month === "all" ? null : Number(month);
+  const comparisonCutoff = selectedMonth !== null && isCurrentMonthSelection(targetYear, selectedMonth, now) ? now.getDate() : undefined;
   const apps = appointmentHistory.filter((item) => item.year === targetYear && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter));
   const quotes = quoteHistory.filter((item) => item.year === targetYear && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter));
   const sales = contracts.filter((item) => item.year === targetYear && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter));
-  const previousApps = appointmentHistory.filter((item) => item.year === targetYear - 1 && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter));
-  const previousQuotes = quoteHistory.filter((item) => item.year === targetYear - 1 && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter));
-  const previousSales = contracts.filter((item) => item.year === targetYear - 1 && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter));
+  const previousApps = appointmentHistory.filter((item) => item.year === targetYear - 1 && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter) && (comparisonCutoff === undefined || dateDay(item.date) <= comparisonCutoff));
+  const previousQuotes = quoteHistory.filter((item) => item.year === targetYear - 1 && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter) && (comparisonCutoff === undefined || dateDay(item.date) <= comparisonCutoff));
+  const previousSales = contracts.filter((item) => item.year === targetYear - 1 && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter) && (comparisonCutoff === undefined || dateDay(item.date) <= comparisonCutoff));
   const totals = { appointments: apps.length, presented: apps.filter((item) => item.status === "presented").length, noShows: apps.filter((item) => item.status === "no-show").length, contracts: sales.length };
   const resolved = totals.presented + totals.noShows;
   const leadCohorts = (payload.channelAnalysis?.leadCohorts ?? []).filter((item) => item.year === targetYear && (month === "all" || item.month === Number(month)));
@@ -1288,7 +1303,8 @@ function ContractsView({ payload }: { payload: DashboardPayload }) {
   const previousYearCount = sellerBase.filter((item) => item.year === effectiveYear - 1 && (item.month < yearCutoffMonth || (item.month === yearCutoffMonth && Number(item.date.slice(8, 10)) <= yearCutoffDay))).length;
   const effectiveMonth = month === "all" ? (effectiveYear === currentDate.getFullYear() ? currentDate.getMonth() + 1 : 12) : Number(month);
   const currentMonthCount = sellerBase.filter((item) => item.year === effectiveYear && item.month === effectiveMonth).length;
-  const lastYearMonthRows = sellerBase.filter((item) => item.year === effectiveYear - 1 && item.month === effectiveMonth);
+  const monthComparisonCutoff = isCurrentMonthSelection(effectiveYear, effectiveMonth, currentDate) ? currentDate.getDate() : undefined;
+  const lastYearMonthRows = sellerBase.filter((item) => item.year === effectiveYear - 1 && item.month === effectiveMonth && (monthComparisonCutoff === undefined || dateDay(item.date) <= monthComparisonCutoff));
   const sameMonthRows = sellerBase.filter((item) => item.year === effectiveYear && item.month === effectiveMonth);
   const sameMonthRevenue = sameMonthRows.reduce((sum, item) => sum + (item.revenue || 0), 0);
   const lastYearMonthRevenue = lastYearMonthRows.reduce((sum, item) => sum + (item.revenue || 0), 0);

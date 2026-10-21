@@ -744,22 +744,38 @@ function isLeadOrigin_(value) {
 function readOfficialSales_() {
   const spreadsheet = SpreadsheetApp.openById(SALES_ID);
   const sources = [
-    { name: 'CAR 2024', company: 'Car One', hasOrigin: false },
-    { name: 'CAR 2025', company: 'Car One', hasOrigin: true },
-    { name: 'CAR 2026', company: 'Car One', hasOrigin: true },
-    { name: 'AD MOTOR', company: 'AD Motor', hasOrigin: true },
-    { name: 'AD MOTOR 2026', company: 'AD Motor', hasOrigin: true }
+    { names: ['CAR 2024'], company: 'Car One', hasOrigin: false },
+    { names: ['CAR 2025'], company: 'Car One', hasOrigin: true },
+    { names: ['CAR 2026'], company: 'Car One', hasOrigin: true },
+    { names: ['AD MOTOR 24/25', 'AD MOTOR'], company: 'AD Motor', hasOrigin: true },
+    { names: ['AD MOTOR 2026'], company: 'AD Motor', hasOrigin: true }
   ];
   const seen = {};
   const result = [];
   sources.forEach(function (source) {
-    readSalesSheet_(spreadsheet.getSheetByName(source.name), source.company, source.hasOrigin).forEach(function (sale) {
+    readSalesSheet_(findSheetByNames_(spreadsheet, source.names), source.company, source.hasOrigin).forEach(function (sale) {
       if (seen[sale.key]) return;
       seen[sale.key] = true;
       result.push(sale);
     });
   });
   return result;
+}
+
+function findSheetByNames_(spreadsheet, names) {
+  for (let i = 0; i < names.length; i += 1) {
+    const exact = spreadsheet.getSheetByName(names[i]);
+    if (exact) return exact;
+  }
+  const normalizedNames = names.map(function (name) {
+    return String(name || '').trim().toUpperCase();
+  });
+  const sheets = spreadsheet.getSheets();
+  for (let i = 0; i < sheets.length; i += 1) {
+    const normalizedTitle = String(sheets[i].getName() || '').trim().toUpperCase();
+    if (normalizedNames.indexOf(normalizedTitle) >= 0) return sheets[i];
+  }
+  return null;
 }
 
 function readSalesSheet_(sheet, company, hasOrigin) {
