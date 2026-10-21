@@ -45,10 +45,6 @@ export type DashboardPayload = {
   todayAgenda: AppointmentItem[];
   upcomingAgenda?: Array<AppointmentItem & { date: string }>;
   quoteHistory?: QuoteHistoryItem[];
-  operationalQuotes?: OperationalQuote[];
-  operationalQuotesError?: string;
-  operationalQuotesUpdatedAt?: string;
-  quoteCalendar?: Record<string, boolean>;
   weeklyHistory?: WeeklyCommercialItem[];
   dailyHistory?: DailyCommercialItem[];
   socialAppointmentHistory?: SocialAppointmentHistoryItem[];
@@ -68,31 +64,9 @@ export type DashboardPayload = {
   }>;
   leadHistory: LeadHistoryItem[];
   leadManagement?: LeadManagementItem[];
-  leadDailyQuality?: LeadDailyQualityItem[];
-  leadDailyQualityError?: string;
   leadItems?: LeadItem[];
   contractHistory: ContractHistoryItem[];
   channelAnalysis?: ChannelAnalysis;
-};
-
-export type OperationalQuote = {
-  id: string; date: string; seller: string; client: string; vehicle: string;
-  status: string; lastFollowup: string | null; nextFollowup: string | null;
-  note: string; url: string;
-};
-
-export type LeadDailyQualityItem = {
-  date: string;
-  seller: string;
-  name: string;
-  due: number;
-  managedWithinDay: number;
-  missingAtDeadline: number;
-  rate: number | null;
-  recovered: number;
-  backlog: number;
-  measurement: "evening-observation" | "reconstructed";
-  note: string;
 };
 
 export type LeadManagementItem = {
