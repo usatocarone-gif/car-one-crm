@@ -5,19 +5,16 @@ import { BarChart3, BrainCircuit, CalendarDays, CheckCircle2, CircleAlert, Euro,
 import type { AppointmentItem, ChannelCohortItem, ContractHistoryItem, DashboardPayload, DashboardPeriod, LeadHistoryItem, LeadManagementItem, PeriodKey, QuoteHistoryItem, ShowRateHistoryItem, SocialAppointmentHistoryItem } from "@/lib/types";
 import { snapshot } from "@/lib/snapshot";
 import { AILeadManagerView } from "@/app/components/ai-lead-manager";
-import { LeadDailyQualityPanel } from "@/app/components/lead-daily-quality";
-import { LEAD_REGION_CLUSTERS, leadCityCluster, leadRegionCluster } from "@/lib/lead-geography";
-import { DashboardLeadManagement } from "@/app/components/dashboard-lead-management";
-import { OperationalQuotes } from "@/app/components/operational-quotes";
 
 const menu = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "sources", label: "Gestione lead", icon: Users },
-  { id: "agenda", label: "Appuntamenti", icon: CalendarDays },
+  { id: "ai-lead-manager", label: "AI Lead Manager", icon: BrainCircuit },
+  { id: "channels", label: "Canali", icon: GitBranch },
+  { id: "sources", label: "Lead", icon: TrendingUp },
+  { id: "agenda", label: "Appuntamenti social", icon: CalendarDays },
   { id: "quotes", label: "Preventivi", icon: FileText },
   { id: "contracts", label: "Contratti", icon: FileCheck2 },
-  { id: "sellers", label: "Venditori", icon: BarChart3 },
-  { id: "channels", label: "Marketing e canali", icon: GitBranch },
+  { id: "sellers", label: "Conversione venditori", icon: BarChart3 },
 ];
 const SALES_TEAM = ["Caironi", "Grandolini", "Liguori", "Monacelli", "Bordini", "Pagliara"];
 
@@ -132,6 +129,17 @@ type TrendPoint = {
 function localContractDate(value: string) {
   const [year, month, day] = value.split("-").map(Number);
   return new Date(year, month - 1, day);
+}
+
+function dateDay(value: string) {
+  const match = String(value).match(/^\d{4}-\d{2}-(\d{2})/);
+  if (match) return Number(match[1]);
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.valueOf()) ? 0 : parsed.getDate();
+}
+
+function isCurrentMonthSelection(year: number, month: number, now: Date) {
+  return year === now.getFullYear() && month === now.getMonth() + 1;
 }
 
 function mondayOf(date: Date) {
@@ -293,13 +301,7 @@ function CommercialTrend({ payload, period, anchorValue }: { payload: DashboardP
       </svg>
       {activePoint ? <div className="trend-tooltip" style={{ left: `${Math.min(92, Math.max(8, (x(active ?? 0) / width) * 100))}%` }}><b>{activePoint.label}</b><span>Contratti {activePoint.actualContracts ?? "—"}</span><span>Preventivi {activePoint.actualQuotes ?? "—"}</span><span>Conversione {activePoint.conversion === null ? "—" : `${formatNumber(activePoint.conversion)}%`}</span><span>Contratti anno scorso {formatNumber(activePoint.previousContracts)}</span><span>Preventivi anno scorso {formatNumber(activePoint.previousQuotes)}</span><span>Obiettivo {activePoint.target === null ? "—" : formatNumber(activePoint.target)}</span><span>Forecast {activePoint.forecast === null ? "—" : formatNumber(activePoint.forecast)}</span></div> : null}
     </div> : <div className="empty-compact">Il grafico sarà disponibile quando lo storico contratti live è caricato.</div>}
-    <div className="trend-legend" aria-label="Legenda delle serie visibili">
-      {(mode === "overview" || mode === "contracts") && <><span><i className="actual" />Contratti</span><span><i className="forecast" />Forecast contratti</span>{trend.target && <span><i className="target" />Ritmo obiettivo</span>}</>}
-      {(mode === "overview" || mode === "quotes") && <span><i className="quotes" />Preventivi</span>}
-      {mode === "quotes" && <span><i className="quote-previous" />Preventivi anno scorso</span>}
-      {mode === "contracts" && <span><i className="previous" />Contratti anno scorso</span>}
-      {mode === "conversion" && <><span><i className="conversion" />Conversione %</span><span><i className="previous" />Conversione % anno scorso</span></>}
-    </div>
+    <div className="trend-legend"><span><i className="actual" />Contratti</span><span><i className="quotes" />Preventivi</span><span><i className="forecast" />Forecast contratti</span><span><i className="target" />Ritmo obiettivo</span><span><i className="previous" />Stesso periodo anno scorso</span></div>
   </section>;
 }
 
@@ -423,10 +425,11 @@ type BusinessMonthComparison = {
   previous: BusinessMonthMetrics;
 };
 
-function monthMetrics(payload: DashboardPayload, year: number, month: number, liveMonth: boolean): BusinessMonthMetrics {
-  const appointments = (payload.socialAppointmentHistory ?? []).filter((item) => item.year === year && item.month === month);
-  const contracts = (payload.contractHistory ?? []).filter((item) => item.year === year && item.month === month);
-  const quotes = (payload.quoteHistory ?? []).filter((item) => item.year === year && item.month === month).length;
+function monthMetrics(payload: DashboardPayload, year: number, month: number, liveMonth: boolean, cutoffDay?: number): BusinessMonthMetrics {
+  const throughCutoff = (date: string) => cutoffDay === undefined || dateDay(date) <= cutoffDay;
+  const appointments = (payload.socialAppointmentHistory ?? []).filter((item) => item.year === year && item.month === month && throughCutoff(item.date));
+  const contracts = (payload.contractHistory ?? []).filter((item) => item.year === year && item.month === month && throughCutoff(item.date));
+  const quotes = (payload.quoteHistory ?? []).filter((item) => item.year === year && item.month === month && throughCutoff(item.date)).length;
   const historyLeads = (payload.leadHistory ?? []).filter((item) => item.year === year && item.month === month).reduce((sum, item) => sum + item.leads, 0);
   const cohortLeadContracts = (payload.channelAnalysis?.leadCohorts ?? []).filter((item) => item.year === year && item.month === month).reduce((sum, item) => sum + item.contracts, 0);
   const totalContracts = contracts.length;
@@ -450,7 +453,7 @@ function buildBusinessMonthComparison(payload: DashboardPayload, period: PeriodK
   return {
     label: `${new Intl.DateTimeFormat("it-IT", { month: "long", year: "numeric" }).format(anchor)} vs ${year - 1}`,
     current: monthMetrics(payload, year, month, liveMonth),
-    previous: monthMetrics(payload, year - 1, month, false),
+    previous: monthMetrics(payload, year - 1, month, false, liveMonth ? now.getDate() : undefined),
   };
 }
 
@@ -468,7 +471,7 @@ function selectedLeadContracts(payload: DashboardPayload, period: PeriodKey, sta
   return cohorts.filter((item) => buckets.has(`${item.year}-${item.month}-${item.week}`)).reduce((sum, item) => sum + item.contracts, 0);
 }
 
-function Dashboard({ payload, period, setPeriod, onOpenLeads }: { payload: DashboardPayload; period: PeriodKey; setPeriod: (period: PeriodKey) => void; onOpenLeads: () => void }) {
+function Dashboard({ payload, period, setPeriod }: { payload: DashboardPayload; period: PeriodKey; setPeriod: (period: PeriodKey) => void }) {
   const now = new Date();
   const [dayValue, setDayValue] = useState(now.toISOString().slice(0, 10));
   const [weekValue, setWeekValue] = useState(now.toISOString().slice(0, 10));
@@ -502,7 +505,6 @@ function Dashboard({ payload, period, setPeriod, onOpenLeads }: { payload: Dashb
       <AppointmentsPanel payload={payload} />
       <section className="panel"><header><div><h3>Performance venditori</h3><p>Contratti Car One + AD Motor</p></div><BarChart3 size={19} /></header><div className="seller-list">{data.sellers.length ? data.sellers.map((seller) => <div className="seller-row" key={seller.name}><div><b>{seller.name}</b><span>{seller.carOne} Car One · {seller.adMotor} AD</span></div><strong>{seller.contracts}</strong><div className="track"><i style={{ width: `${Math.max(8, seller.contracts / Math.max(...data.sellers.map((s) => s.contracts)) * 100)}%` }} /></div></div>) : <div className="empty-compact">I risultati venditore sono disponibili nelle viste settimanale e mensile.</div>}</div></section>
     </div>
-    <DashboardLeadManagement payload={payload} month={anchorValue.slice(0,7)} onOpen={onOpenLeads} />
   </>;
 }
 
@@ -537,7 +539,7 @@ function LeadManagementPanel({ current, previous, sourceLeadTotal, comparisonEna
   const previousRate = previousTotals.total ? previousTotals.managed / previousTotals.total * 100 : null;
 
   return <section className="panel lead-management-panel">
-    <header><div><h3>Gestione lead attuale per venditore</h3><p>Feedback presente oggi, inclusi i recuperi successivi alla scadenza</p></div><CheckCircle2 size={19} /></header>
+    <header><div><h3>Gestione lead per venditore</h3><p>Feedback valorizzato = gestito · feedback vuoto = non gestito</p></div><CheckCircle2 size={19} /></header>
     {rows.length ? <>
       <div className="lead-management-summary">
         <article><span>Righe nei fogli venditori</span><strong>{totals.total}</strong><small>{sourceLeadTotal ? `${sourceLeadTotal} lead Make Leads nello stesso filtro` : "Periodo senza totale Make Leads"}</small></article>
@@ -560,18 +562,8 @@ function LeadManagementPanel({ current, previous, sourceLeadTotal, comparisonEna
   </section>;
 }
 
-function LeadWorkspace({ payload }: { payload: DashboardPayload }) {
-  const [view, setView] = useState("overview");
-  return <>
-    <header className="page-head"><div><p className="eyebrow">Controllo commerciale</p><h1>Gestione lead</h1><span>Risultati dei venditori, prime scadenze e lead da lavorare</span></div></header>
-    <div className="lead-workspace-tabs" role="group" aria-label="Vista gestione lead"><button aria-pressed={view === "overview"} onClick={() => setView("overview")}>Riepilogo e scadenze</button><button aria-pressed={view === "operational"} onClick={() => setView("operational")}>Elenco operativo</button></div>
-    <div hidden={view !== "overview"}><SourcesView payload={payload} embedded /></div>
-    <div hidden={view !== "operational"}><AILeadManagerView payload={payload} embedded /></div>
-  </>;
-}
-
-function SourcesView({ payload, embedded = false }: { payload: DashboardPayload; embedded?: boolean }) {
-  const history = (payload.leadHistory ?? []).map(item => ({ ...item, city: leadCityCluster(item.city), region: leadRegionCluster(item.region), geoClassified: item.region !== "Da classificare" }));
+function SourcesView({ payload }: { payload: DashboardPayload }) {
+  const history = payload.leadHistory ?? [];
   const management = payload.leadManagement ?? [];
   const years = [...new Set(history.map((item) => item.year))].sort((a, b) => b - a);
   const currentYear = new Date().getFullYear();
@@ -581,7 +573,7 @@ function SourcesView({ payload, embedded = false }: { payload: DashboardPayload;
   const [channel, setChannel] = useState("all");
   const [region, setRegion] = useState("all");
   const channels = [...new Set(history.map((item) => item.channel))].sort();
-  const regions = LEAD_REGION_CLUSTERS;
+  const regions = [...new Set(history.map((item) => item.region))].sort((a, b) => a === "Da classificare" ? 1 : b === "Da classificare" ? -1 : a.localeCompare(b));
   const filtered = history.filter((item) =>
     (year === "all" || item.year === Number(year)) &&
     (month === "all" || item.month === Number(month)) &&
@@ -590,8 +582,7 @@ function SourcesView({ payload, embedded = false }: { payload: DashboardPayload;
   );
   const total = filtered.reduce((sum, item) => sum + item.leads, 0);
   const byChannel = sumLeadHistory(filtered, (item) => item.channel);
-  const regionTotals = new Map(sumLeadHistory(filtered, (item) => item.region));
-  const byRegion: Array<[string, number]> = LEAD_REGION_CLUSTERS.map(name => [name, regionTotals.get(name) ?? 0]);
+  const byRegion = sumLeadHistory(filtered, (item) => item.region);
   const byCity = sumLeadHistory(filtered, (item) => item.city);
   const byMonth = sumLeadHistory(filtered, (item) => `${item.year}-${String(item.month).padStart(2, "0")}`)
     .sort((a, b) => a[0].localeCompare(b[0]))
@@ -599,11 +590,11 @@ function SourcesView({ payload, embedded = false }: { payload: DashboardPayload;
       const [itemYear, itemMonth] = key.split("-").map(Number);
       return [`${MONTHS[itemMonth - 1]} ${String(itemYear).slice(-2)}`, value] as [string, number];
     });
-  const classified = filtered.filter((item) => item.geoClassified).reduce((sum, item) => sum + item.leads, 0);
+  const classified = filtered.filter((item) => item.region !== "Da classificare").reduce((sum, item) => sum + item.leads, 0);
   const topChannel = byChannel[0];
-  const topRegion = [...byRegion].filter(([name, value]) => name !== "Altro" && value > 0).sort((a,b) => b[1]-a[1])[0] ?? byRegion.find(([name, value]) => name === "Altro" && value > 0);
+  const topRegion = byRegion.find(([name]) => name !== "Da classificare") ?? byRegion[0];
   const visibleChannels = sumLeadHistory(filtered, (item) => item.channel).slice(0, 5).map(([name]) => name);
-  const visibleRegions = [...LEAD_REGION_CLUSTERS];
+  const visibleRegions = byRegion.filter(([name]) => name !== "Da classificare").slice(0, 8).map(([name]) => name);
   const matrixValue = (regionName: string, channelName: string) => filtered
     .filter((item) => item.region === regionName && item.channel === channelName)
     .reduce((sum, item) => sum + item.leads, 0);
@@ -628,7 +619,7 @@ function SourcesView({ payload, embedded = false }: { payload: DashboardPayload;
   ).reduce((sum, item) => sum + item.leads, 0);
 
   return <>
-    {!embedded && <header className="page-head"><div><p className="eyebrow">Acquisizione</p><h1>Lead e gestione commerciale</h1><span>Provenienza, territorio e lavorazione dei lead assegnati ai venditori</span></div></header>}
+    <header className="page-head"><div><p className="eyebrow">Acquisizione</p><h1>Lead e gestione commerciale</h1><span>Provenienza, territorio e lavorazione dei lead assegnati ai venditori</span></div></header>
     <section className="filter-bar">
       <label><span>Anno</span><select value={year} onChange={(event) => setYear(event.target.value)}><option value="all">Tutti</option>{years.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
       <label><span>Mese</span><select value={month} onChange={(event) => setMonth(event.target.value)}><option value="all">Tutti</option>{MONTHS.map((item, index) => <option value={index + 1} key={item}>{item}</option>)}</select></label>
@@ -636,8 +627,6 @@ function SourcesView({ payload, embedded = false }: { payload: DashboardPayload;
       <label><span>Regione</span><select value={region} onChange={(event) => setRegion(event.target.value)}><option value="all">Tutte</option>{regions.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
       <button onClick={() => { setYear("all"); setMonth("all"); setChannel("all"); setRegion("all"); }}>Azzera filtri</button>
     </section>
-    <LeadManagementPanel current={managementCurrent} previous={managementPrevious} sourceLeadTotal={managementSourceTotal} comparisonEnabled={year !== "all"} />
-    {region !== "all" && <p className="filter-scope-note">La regione filtra acquisizione e territorio. La gestione dei venditori usa anno, mese e canale.</p>}
     {history.length ? <>
       <div className="metrics-grid source-metrics">
         <Metric label="Lead analizzati" value={total} primary={`${byChannel.length} canali`} secondary="nel periodo filtrato" />
@@ -646,15 +635,12 @@ function SourcesView({ payload, embedded = false }: { payload: DashboardPayload;
         <Metric label="Zone classificate" value={percentage(classified, total)} primary={`${classified} lead`} secondary={`${total - classified} da verificare`} />
       </div>
       <YoYComparison rows={[{ label: "Lead", current: comparisonCurrent, previous: comparisonPrevious }]} />
-    </> : null}
-    <LeadDailyQualityPanel items={payload.leadDailyQuality} error={payload.leadDailyQualityError} year={year} month={month} />
-    {history.length ? <>
-      <details className="lead-analysis-details"><summary>Approfondimenti: canali e territorio</summary>
+      <LeadManagementPanel current={managementCurrent} previous={managementPrevious} sourceLeadTotal={managementSourceTotal} comparisonEnabled={year !== "all"} />
       <div className="history-grid source-history-grid">
         <section className="panel"><header><div><h3>Andamento mensile</h3><p>Volumi e stagionalità dei lead</p></div><TrendingUp size={19} /></header><BarList rows={byMonth} maxRows={18} /></section>
         <section className="panel"><header><div><h3>Canali di acquisizione</h3><p>Facebook, Instagram, TikTok e altri</p></div><BarChart3 size={19} /></header><BarList rows={byChannel} /></section>
-        <section className="panel"><header><div><h3>Cluster regionali</h3><p>Umbria, Toscana, Marche e Lazio; tutte le altre in Altro</p></div><Users size={19} /></header><BarList rows={byRegion} showShare /></section>
-        <section className="panel"><header><div><h3>Zone più attive</h3><p>Perugia e le varianti PG sono accorpate</p></div><Target size={19} /></header><BarList rows={byCity} maxRows={15} showShare /></section>
+        <section className="panel"><header><div><h3>Cluster regionali</h3><p>Lead attribuiti alle regioni italiane</p></div><Users size={19} /></header><BarList rows={byRegion} maxRows={20} /></section>
+        <section className="panel"><header><div><h3>Zone più attive</h3><p>Comuni e località dichiarate nei moduli</p></div><Target size={19} /></header><BarList rows={byCity} maxRows={15} /></section>
       </div>
       <section className="panel table-panel cluster-panel">
         <header><div><h3>Matrice canale × regione</h3><p>Concentrazione geografica dei canali principali</p></div><Gauge size={19} /></header>
@@ -669,9 +655,8 @@ function SourcesView({ payload, embedded = false }: { payload: DashboardPayload;
             </div>;
           })}
         </div>
-        <div className="notice"><CircleAlert size={17} /><span>“Altro” comprende le altre regioni e le località da verificare. Il conteggio “Zone classificate” resta separato: accorpare non significa classificare una località sconosciuta.</span></div>
+        <div className="notice"><CircleAlert size={17} /><span>Le località non riconosciute restano nel cluster “Da classificare”. In questo modo non attribuiamo automaticamente una regione sbagliata ai dati sporchi o ambigui.</span></div>
       </section>
-      </details>
     </> : <section className="placeholder compact"><CircleAlert size={30} /><h2>Storico lead in attesa</h2><p>Aggiorna Apps Script alla versione cluster per caricare le tab mensili di Make Leads.</p></section>}
   </>;
 }
@@ -1091,11 +1076,6 @@ function QuoteWeeklyPanel({ quotes, contracts, previousQuotes, previousContracts
 }
 
 function QuotesView({ payload }: { payload: DashboardPayload }) {
-  const [view, setView] = useState("operations");
-  return <><div className="quote-view-switch" role="group" aria-label="Vista preventivi"><button aria-pressed={view === "operations"} onClick={() => setView("operations")}>Controllo trattative</button><button aria-pressed={view === "history"} onClick={() => setView("history")}>Analisi e storico</button></div><div hidden={view !== "operations"}><OperationalQuotes payload={payload} /></div><div hidden={view !== "history"}><QuotesHistoryView payload={payload} /></div></>;
-}
-
-function QuotesHistoryView({ payload }: { payload: DashboardPayload }) {
   const history = payload.quoteHistory ?? [];
   const soldContracts = payload.contractHistory ?? [];
   const now = new Date();
@@ -1134,10 +1114,11 @@ function QuotesHistoryView({ payload }: { payload: DashboardPayload }) {
   const recent = [...filtered].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 12);
   const effectiveYear = year === "all" ? now.getFullYear() : Number(year);
   const effectiveMonth = month === "all" ? now.getMonth() + 1 : Number(month);
+  const comparisonCutoff = isCurrentMonthSelection(effectiveYear, effectiveMonth, now) ? now.getDate() : undefined;
   const goalItems = history.filter((item) => item.year === effectiveYear && item.month === effectiveMonth && (seller === "all" || item.seller === seller));
-  const previousItems = history.filter((item) => item.year === effectiveYear - 1 && item.month === effectiveMonth && (seller === "all" || item.seller === seller));
+  const previousItems = history.filter((item) => item.year === effectiveYear - 1 && item.month === effectiveMonth && (seller === "all" || item.seller === seller) && (comparisonCutoff === undefined || dateDay(item.date) <= comparisonCutoff));
   const goalConvertedContracts = soldContracts.filter((contract) => contract.year === effectiveYear && contract.month === effectiveMonth && (seller === "all" || contract.seller === seller));
-  const previousConvertedContracts = soldContracts.filter((contract) => contract.year === effectiveYear - 1 && contract.month === effectiveMonth && (seller === "all" || contract.seller === seller));
+  const previousConvertedContracts = soldContracts.filter((contract) => contract.year === effectiveYear - 1 && contract.month === effectiveMonth && (seller === "all" || contract.seller === seller) && (comparisonCutoff === undefined || dateDay(contract.date) <= comparisonCutoff));
   const goalConverted = goalConvertedContracts.length;
   const previousConverted = previousConvertedContracts.length;
   const goalSellers = SALES_TEAM;
@@ -1193,12 +1174,14 @@ function SellersView({ payload }: { payload: DashboardPayload }) {
   const [month, setMonth] = useState(String(now.getMonth() + 1));
   const [sellerFilter, setSellerFilter] = useState("all");
   const targetYear = Number(year);
+  const selectedMonth = month === "all" ? null : Number(month);
+  const comparisonCutoff = selectedMonth !== null && isCurrentMonthSelection(targetYear, selectedMonth, now) ? now.getDate() : undefined;
   const apps = appointmentHistory.filter((item) => item.year === targetYear && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter));
   const quotes = quoteHistory.filter((item) => item.year === targetYear && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter));
   const sales = contracts.filter((item) => item.year === targetYear && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter));
-  const previousApps = appointmentHistory.filter((item) => item.year === targetYear - 1 && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter));
-  const previousQuotes = quoteHistory.filter((item) => item.year === targetYear - 1 && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter));
-  const previousSales = contracts.filter((item) => item.year === targetYear - 1 && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter));
+  const previousApps = appointmentHistory.filter((item) => item.year === targetYear - 1 && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter) && (comparisonCutoff === undefined || dateDay(item.date) <= comparisonCutoff));
+  const previousQuotes = quoteHistory.filter((item) => item.year === targetYear - 1 && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter) && (comparisonCutoff === undefined || dateDay(item.date) <= comparisonCutoff));
+  const previousSales = contracts.filter((item) => item.year === targetYear - 1 && (month === "all" || item.month === Number(month)) && (sellerFilter === "all" || item.seller === sellerFilter) && (comparisonCutoff === undefined || dateDay(item.date) <= comparisonCutoff));
   const totals = { appointments: apps.length, presented: apps.filter((item) => item.status === "presented").length, noShows: apps.filter((item) => item.status === "no-show").length, contracts: sales.length };
   const resolved = totals.presented + totals.noShows;
   const leadCohorts = (payload.channelAnalysis?.leadCohorts ?? []).filter((item) => item.year === targetYear && (month === "all" || item.month === Number(month)));
@@ -1247,11 +1230,10 @@ function aggregate(items: ContractHistoryItem[], key: (item: ContractHistoryItem
   return [...result.entries()].sort((a, b) => b[1] - a[1]);
 }
 
-function BarList({ rows, maxRows = 12, showShare = false }: { rows: Array<[string, number]>; maxRows?: number; showShare?: boolean }) {
+function BarList({ rows, maxRows = 12 }: { rows: Array<[string, number]>; maxRows?: number }) {
   const visible = rows.slice(0, maxRows);
   const max = Math.max(1, ...visible.map((row) => row[1]));
-  const total = rows.reduce((sum, [,value]) => sum + value, 0);
-  return <div className="history-bars" role="list">{visible.map(([label, value]) => <div className="history-bar" role="listitem" key={label} title={`${label}: ${formatNumber(value)}${showShare ? ` (${percentage(value,total)})` : ""}`}><span>{label}</span><div className="track" aria-hidden="true"><i style={{ width: `${value / max * 100}%` }} /></div><strong>{formatNumber(value)}{showShare && <small>{percentage(value,total)}</small>}</strong></div>)}</div>;
+  return <div className="history-bars">{visible.map(([label, value]) => <div className="history-bar" key={label}><span>{label}</span><div className="track"><i style={{ width: `${value / max * 100}%` }} /></div><strong>{value}</strong></div>)}</div>;
 }
 
 function CurrencyBarList({ rows, maxRows = 12 }: { rows: Array<[string, number]>; maxRows?: number }) {
@@ -1288,7 +1270,8 @@ function ContractsView({ payload }: { payload: DashboardPayload }) {
   const previousYearCount = sellerBase.filter((item) => item.year === effectiveYear - 1 && (item.month < yearCutoffMonth || (item.month === yearCutoffMonth && Number(item.date.slice(8, 10)) <= yearCutoffDay))).length;
   const effectiveMonth = month === "all" ? (effectiveYear === currentDate.getFullYear() ? currentDate.getMonth() + 1 : 12) : Number(month);
   const currentMonthCount = sellerBase.filter((item) => item.year === effectiveYear && item.month === effectiveMonth).length;
-  const lastYearMonthRows = sellerBase.filter((item) => item.year === effectiveYear - 1 && item.month === effectiveMonth);
+  const monthComparisonCutoff = isCurrentMonthSelection(effectiveYear, effectiveMonth, currentDate) ? currentDate.getDate() : undefined;
+  const lastYearMonthRows = sellerBase.filter((item) => item.year === effectiveYear - 1 && item.month === effectiveMonth && (monthComparisonCutoff === undefined || dateDay(item.date) <= monthComparisonCutoff));
   const sameMonthRows = sellerBase.filter((item) => item.year === effectiveYear && item.month === effectiveMonth);
   const sameMonthRevenue = sameMonthRows.reduce((sum, item) => sum + (item.revenue || 0), 0);
   const lastYearMonthRevenue = lastYearMonthRows.reduce((sum, item) => sum + (item.revenue || 0), 0);
@@ -1367,6 +1350,6 @@ export default function Home() {
 
   return <main className="app-shell">
     <aside className="sidebar"><div className="brand"><i /><div><strong>Car One CRM</strong><span>Usato · Perugia</span></div></div><nav>{menu.map(({ id, label, icon: Icon }) => <button key={id} className={section === id ? "active" : ""} onClick={() => setSection(id)}><Icon size={18} /><span>{label}</span></button>)}</nav><footer><CheckCircle2 size={15} /><div><strong>{payload.source === "google-live" ? "Google live · 5 min" : "Snapshot verificato"}</strong><span>{updated || "Caricamento…"}</span></div><button aria-label="Aggiorna dati" onClick={() => void refresh()} disabled={loading}><RefreshCw size={15} className={loading ? "spin" : ""} /></button></footer></aside>
-    <section className="content">{section === "dashboard" ? <Dashboard payload={payload} period={period} setPeriod={setPeriod} onOpenLeads={() => setSection("sources")} /> : section === "ai-lead-manager" ? <LeadWorkspace payload={payload} /> : section === "channels" ? <ChannelsView payload={payload} /> : section === "sources" ? <LeadWorkspace payload={payload} /> : section === "agenda" ? <SocialAppointmentsView payload={payload} /> : section === "quotes" ? <QuotesView payload={payload} /> : section === "contracts" ? <ContractsView payload={payload} /> : section === "sellers" ? <SellersView payload={payload} /> : <Placeholder section={section} />}</section>
+    <section className="content">{section === "dashboard" ? <Dashboard payload={payload} period={period} setPeriod={setPeriod} /> : section === "ai-lead-manager" ? <AILeadManagerView payload={payload} /> : section === "channels" ? <ChannelsView payload={payload} /> : section === "sources" ? <SourcesView payload={payload} /> : section === "agenda" ? <SocialAppointmentsView payload={payload} /> : section === "quotes" ? <QuotesView payload={payload} /> : section === "contracts" ? <ContractsView payload={payload} /> : section === "sellers" ? <SellersView payload={payload} /> : <Placeholder section={section} />}</section>
   </main>;
 }
