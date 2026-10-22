@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BarChart3, BrainCircuit, CalendarDays, CheckCircle2, CircleAlert, Euro, FileCheck2, FileText, Gauge, GitBranch, LayoutDashboard, RefreshCw, Target, TrendingUp, Users } from "lucide-react";
 import type { AppointmentItem, ChannelCohortItem, ContractHistoryItem, DashboardPayload, DashboardPeriod, LeadHistoryItem, LeadManagementItem, PeriodKey, QuoteHistoryItem, ShowRateHistoryItem, SocialAppointmentHistoryItem } from "@/lib/types";
 import { snapshot } from "@/lib/snapshot";
@@ -1359,30 +1359,49 @@ export default function Home() {
   const [period, setPeriod] = useState<PeriodKey>("today");
   const [payload, setPayload] = useState<DashboardPayload>(snapshot);
   const [loading, setLoading] = useState(false);
+  const [refreshError, setRefreshError] = useState("");
+  const refreshing = useRef(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = false) => {
+    if (refreshing.current) return;
+    refreshing.current = true;
     setLoading(true);
+    setRefreshError("");
     try {
-      const response = await fetch("/api/dashboard", { cache: "no-store" });
+      const response = await fetch(force ? "/api/dashboard?refresh=1" : "/api/dashboard", { cache: "no-store" });
       if (!response.ok) throw new Error("Aggiornamento non disponibile");
-      setPayload(await response.json() as DashboardPayload);
+      const next = await response.json() as DashboardPayload;
+      if (!next.periods || !Number.isFinite(Date.parse(next.lastUpdated))) throw new Error("Dati non validi");
+      setPayload(next);
+      if (next.source === "google-live") {
+        try { window.sessionStorage.setItem("crm-dashboard-v1", JSON.stringify(next)); } catch { /* Storage pieno o disabilitato: la lettura live continua. */ }
+      }
     } catch {
       // Mantiene l'ultimo dato valido se Google o la rete non rispondono.
+      setRefreshError("Aggiornamento non riuscito: visualizzi l’ultimo dato disponibile.");
     } finally {
+      refreshing.current = false;
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
+    try {
+      const saved = window.sessionStorage.getItem("crm-dashboard-v1");
+      if (saved) {
+        const previous = JSON.parse(saved) as DashboardPayload;
+        if (previous.source === "google-live" && previous.periods && Number.isFinite(Date.parse(previous.lastUpdated))) setPayload(previous);
+      }
+    } catch { /* Cache locale non disponibile: usa il normale caricamento. */ }
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 5 * 60 * 1000);
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, 2 * 60 * 1000);
     return () => window.clearInterval(timer);
   }, [refresh]);
 
   const updated = useMemo(() => payload ? new Intl.DateTimeFormat("it-IT", { dateStyle: "medium", timeStyle: "short" }).format(new Date(payload.lastUpdated)) : "", [payload]);
 
   return <main className="app-shell">
-    <aside className="sidebar"><div className="brand"><i /><div><strong>Car One CRM</strong><span>Usato · Perugia</span></div></div><nav>{menu.map(({ id, label, icon: Icon }) => <button key={id} className={section === id ? "active" : ""} onClick={() => setSection(id)}><Icon size={18} /><span>{label}</span></button>)}</nav><footer><CheckCircle2 size={15} /><div><strong>{payload.source === "google-live" ? "Google live · 5 min" : "Snapshot verificato"}</strong><span>{updated || "Caricamento…"}</span></div><button aria-label="Aggiorna dati" onClick={() => void refresh()} disabled={loading}><RefreshCw size={15} className={loading ? "spin" : ""} /></button></footer></aside>
+    <aside className="sidebar"><div className="brand"><i /><div><strong>Car One CRM</strong><span>Usato · Perugia</span></div></div><nav>{menu.map(({ id, label, icon: Icon }) => <button key={id} className={section === id ? "active" : ""} onClick={() => setSection(id)}><Icon size={18} /><span>{label}</span></button>)}</nav><footer><CheckCircle2 size={15} /><div><strong>{payload.source === "google-live" ? "Google · cache 2 min" : "Snapshot verificato"}</strong><span>{updated || "Caricamento…"}</span>{loading && <span role="status">Aggiornamento in corso…</span>}{refreshError && <span role="alert">{refreshError}</span>}</div><button aria-label="Aggiorna dati" title="Forza lettura live da Google (può richiedere fino a 2 minuti)" onClick={() => void refresh(true)} disabled={loading}><RefreshCw size={15} className={loading ? "spin" : ""} /></button></footer></aside>
     <section className="content">{section === "dashboard" ? <Dashboard payload={payload} period={period} setPeriod={setPeriod} onOpenLeads={() => setSection("sources")} /> : section === "ai-lead-manager" ? <LeadWorkspace payload={payload} /> : section === "channels" ? <ChannelsView payload={payload} /> : section === "sources" ? <LeadWorkspace payload={payload} /> : section === "agenda" ? <SocialAppointmentsView payload={payload} /> : section === "quotes" ? <QuotesView payload={payload} /> : section === "contracts" ? <ContractsView payload={payload} /> : section === "sellers" ? <SellersView payload={payload} /> : <Placeholder section={section} />}</section>
   </main>;
 }
