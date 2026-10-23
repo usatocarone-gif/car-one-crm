@@ -3,10 +3,11 @@ const vm=require('node:vm');
 const assert=require('node:assert/strict');
 const crypto=require('node:crypto');
 const ts=require('typescript');
-function load(file,imports={}){const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:n=>imports[n]||require(n),Buffer,URL,Date,Intl,AbortSignal,process,TextDecoder,Response,Request});return exports;}
+function load(file,imports={},globals={}){const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:n=>imports[n]||require(n),Buffer,URL,Date,Intl,AbortSignal,process,TextDecoder,Response,Request,...globals});return exports;}
 const schema=load('lib/assistant/schema.ts'),summary=load('lib/assistant/summary.ts');
 const operational=load('lib/operational-quotes.ts');
 const origins=load('lib/contract-origin.ts');
+const gemini=load('lib/assistant/gemini.ts',{'./schema':schema});
 const server=load('lib/assistant/server.ts',{'next/cache':{unstable_cache:f=>f},'./schema':schema,'../operational-quotes':operational,'../contract-origin':origins});
 for(const day of ['2026-02-29','2026-02-31','2026-13-01','2026-00-10','03/04/26','2026-10','2026-01-01junk'])assert.equal(schema.validDay(day),false,day);
 assert.equal(schema.validDay('2024-02-29'),true);
@@ -54,13 +55,14 @@ assert.equal((candidate.match(/function doPost\(/g)||[]).length,1);
 assert.ok(candidate.includes("if (e.parameter.action === 'assistant')"));
 console.log('PASS: date, filtri, autenticazione, provenienza, sorgenti mancanti, duplicati, medie pesate, sintassi Apps Script');
 (async()=>{
- const route=load('app/api/assistant/route.ts',{'next/server':{NextResponse:{json:(body,init={})=>Response.json(body,init)}},'@/lib/assistant/server':{authenticated:server.authenticated,readAssistant:()=>{throw Error('must not read');}},'@/lib/assistant/schema':schema,'@/lib/assistant/summary':summary});
+ const route=load('app/api/assistant/route.ts',{'next/server':{NextResponse:{json:(body,init={})=>Response.json(body,init)}},'@/lib/assistant/server':{authenticated:server.authenticated,readAssistant:()=>{throw Error('must not read');}},'@/lib/assistant/schema':schema,'@/lib/assistant/summary':summary,'@/lib/assistant/gemini':gemini});
  process.env.DASHBOARD_USER='pilot';process.env.DASHBOARD_PASSWORD='local-test';
  const auth='Basic '+Buffer.from('pilot:local-test').toString('base64');
  assert.equal((await route.POST(new Request('https://crm.example/api/assistant',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(query)}))).status,401);
  assert.equal((await route.POST(new Request('https://crm.example/api/assistant',{method:'POST',headers:{authorization:auth,origin:'https://evil.example','content-type':'application/json'},body:JSON.stringify(query)}))).status,403);
  assert.equal((await route.POST(new Request('https://crm.example/api/assistant',{method:'POST',headers:{authorization:auth,'content-type':'application/json'},body:JSON.stringify({question:'Quanti contratti di Caironi nel 2025?'})}))).status,400);
  assert.equal((await route.POST(new Request('https://crm.example/api/assistant',{method:'POST',headers:{authorization:auth,'content-type':'application/json'},body:JSON.stringify(query)}))).status,503);
+ await testGemini();
  console.log('PASS: API 401, 403, chiarimenti 400, fonte indisponibile 503');
 })().catch(e=>{console.error(e);process.exitCode=1;});
 // The current-month source must never coerce a bad or out-of-month date.
@@ -96,3 +98,40 @@ console.log('PASS: campo Origine, Facebook/Lead varianti, walk-in esclusi, origi
 const distinctCars=[sale('2025-10-04','Same client'),sale('2025-10-04','Same client')];distinctCars[0][3]='AA111AA';distinctCars[1][3]='BB222BB';
 tabs['CAR 2025']=makeSheet('CAR 2025',distinctCars);r=result();context.assistantContracts_(r,new Date('2026-10-23T10:00:00Z'));assert.equal(r.rows.length,2);assert.equal(r.sources[0].status,'available');
 console.log('PASS: stesso cliente/modello/giorno ma targhe diverse = due vendite distinte');
+
+async function testGemini(){
+ const saved={key:process.env.GEMINI_API_KEY,enabled:process.env.ASSISTANT_GEMINI_ENABLED,model:process.env.GEMINI_MODEL};
+ try{
+  process.env.GEMINI_API_KEY='synthetic-key';process.env.ASSISTANT_GEMINI_ENABLED='false';
+  let sent=0, last;
+  const response=plan=>Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(plan)}]}}]});
+  const ok={status:'query',kind:'contracts',from:'2024-01-01',to:'2024-12-31'};
+  const mock=async(url,init)=>{sent++;last={url,init};return response(ok);};
+  let g=load('lib/assistant/gemini.ts',{'./schema':schema},{fetch:mock});
+  await assert.rejects(g.planWithGemini('Quante vendite registrate nel 2024?'),/non è ancora attivo/);assert.equal(sent,0);
+  process.env.ASSISTANT_GEMINI_ENABLED='true';delete process.env.GEMINI_MODEL;
+  assert.doesNotThrow(()=>g.validatePublicQuestion('Vendite dal 2026-01-01 al 23/10/2026'));
+  for(const question of ['cliente di nome Mario Rossi','email test@example.test','targa AB123CD','telefono 3331234567','vedi https://example.test'])await assert.rejects(g.planWithGemini(question));
+  assert.equal(sent,0);
+  assert.equal((await g.interpretAssistantQuestion('Quanti contratti abbiamo nel 2025?')).engine,'local');assert.equal(sent,0);
+  assert.equal((await g.planWithGemini('Quante vendite registrate nel 2024?',new Date('2026-10-22T23:30:00Z'))).from,'2024-01-01');
+  assert.ok(!last.url.includes('synthetic-key'));assert.equal(last.init.headers['x-goog-api-key'],'synthetic-key');
+  const payload=JSON.parse(last.init.body),question=JSON.parse(payload.contents[0].parts[0].text);
+  assert.equal(question.today,'2026-10-23');assert.deepEqual(Object.keys(question).sort(),['question','timeZone','today']);
+  assert.equal(payload.tools,undefined);assert.equal(payload.generationConfig.responseMimeType,'application/json');
+  assert.ok(payload.systemInstruction.parts[0].text.includes('## Ruolo e stile'));assert.ok(!payload.systemInstruction.parts[0].text.includes('389'));
+  for(const plan of [{...ok,status:'unsupported',kind:'none',from:'',to:''},{...ok,status:'clarification',kind:'none',from:'',to:''},{...ok,from:'2024-02-31'},{...ok,seller:'Caironi'},{...ok,kind:'sql'},{...ok,from:'2023-01-01',to:'2023-12-31'}]){
+   g=load('lib/assistant/gemini.ts',{'./schema':schema},{fetch:async()=>response(plan)});await assert.rejects(g.planWithGemini('domanda aggregata'));
+  }
+  g=load('lib/assistant/gemini.ts',{'./schema':schema},{fetch:async()=>new Response('private-provider-error',{status:429})});
+  await assert.rejects(g.planWithGemini('domanda aggregata'),e=>e instanceof g.GeminiUnavailable&&!e.message.includes('private-provider-error'));
+  g=load('lib/assistant/gemini.ts',{'./schema':schema},{fetch:async()=>Response.json({candidates:[{finishReason:'MAX_TOKENS',content:{parts:[{text:JSON.stringify(ok)}]}}]})});
+  await assert.rejects(g.planWithGemini('domanda aggregata'),e=>e instanceof g.GeminiUnavailable);
+  g=load('lib/assistant/gemini.ts',{'./schema':schema},{fetch:mock});
+  for(let i=0;i<10;i++)await g.planWithGemini('domanda aggregata');
+  await assert.rejects(g.planWithGemini('domanda aggregata'),e=>e instanceof g.GeminiUnavailable);
+  console.log('PASS: Gemini disattivato, identificativi bloccati, richieste locali senza AI, date Roma, piano validato, filtri extra rifiutati, errori senza dettagli, throttle');
+ }finally{
+  for(const [name,value] of [['GEMINI_API_KEY',saved.key],['ASSISTANT_GEMINI_ENABLED',saved.enabled],['GEMINI_MODEL',saved.model]]){if(value===undefined)delete process.env[name];else process.env[name]=value;}
+ }
+}

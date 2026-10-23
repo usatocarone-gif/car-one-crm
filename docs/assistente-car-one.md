@@ -1,10 +1,10 @@
 # Assistente Car One — pilota in sola lettura
 
-Stato 23 ottobre 2026: implementato su branch feat/assistant-readonly; rilascio da verificare. Nessun servizio acquistato, nessun dato di produzione modificato, nessun fornitore AI chiamato. L'accesso condiviso del CRM rimane richiesto. Nessuna separazione per venditore nel pilota.
+Stato 23 ottobre 2026: pilota locale pubblicato, PR #3 unita, Apps Script aggiornato alla versione 52 e deploy Production Vercel completato. Verifica UI autenticata ancora da completare. Il collegamento Gemini descritto sotto è un successivo intervento da rilasciare e configurare. Nessun servizio acquistato, nessun dato di produzione modificato, nessun fornitore AI chiamato. L'accesso condiviso del CRM rimane richiesto. Nessuna separazione per venditore nel pilota.
 
-## Base pubblicata verificata
+## Base precedente verificata (prima del rilascio v52)
 
-Dal pannello Gestisci deployment Apps Script è attiva la versione 51 del 21 ottobre 2026, ore 18:29 (orario dell'interfaccia). Descrizione: “Report: lead tutti i giorni incluse domeniche; medie lun-sab; planning facoltativo”. Il codice di Cronologia progetto → Versione 51 è stato copiato e confrontato integralmente con l'editor: identico, 93.117 caratteri. Conservato in integrations/apps-script/published-v51.gs; il vecchio file API V7 è storico, non la base corrente.
+Dal pannello Gestisci deployment Apps Script era attiva la versione 51 del 21 ottobre 2026, ore 18:29 (orario dell'interfaccia). Descrizione: “Report: lead tutti i giorni incluse domeniche; medie lun-sab; planning facoltativo”. Il codice di Cronologia progetto → Versione 51 è stato copiato e confrontato integralmente con l'editor: identico, 93.117 caratteri. Conservato in integrations/apps-script/published-v51.gs; il vecchio file API V7 è storico, non la base corrente.
 
 Progetto: https://script.google.com/home/projects/1rWhTNo8M1qZcDaatSTXMhZfEiw6M9wR2ZP9_ocgA-wuYdNkcrjMt5SMy/edit
 Deployment osservato: AKfycbwVVJpZOnb8GiFLTf_wDz_SnBkfVM_ugAPjEKNyEtUUBe4NYLQEi1cpSu2GeUQf7wJv.
@@ -59,13 +59,32 @@ I percorsi legacy della dashboard mantengono il comportamento v51: non è stata 
 
 ## Modello, chiavi e dati ai fornitori
 
-Scelta del pilota: nessun modello, costo API AI zero; rimangono consumi dell'hosting e quote Google. L'architettura è pronta per un interprete che restituisce soltanto kind/from/to, sempre rivalidati.
+### Prova Gemini: interpretazione delle domande
 
-Candidato successivo da collaudare: GPT-5.6 Terra, supporto function calling e structured outputs, prezzo consultato $2/M token input e $12/M output. Non attivato. Riferimento: https://developers.openai.com/api/docs/models/gpt-5.6-terra . Non serve un modello per fare somme. La scelta finale dipende da test di interpretazione in italiano, latenza e costo misurato; per ora il pilota evita del tutto tali chiamate.
+Il pilota locale rimane disponibile senza chiavi AI. L'integrazione sperimentale usa Gemini solo per tradurre domande non riconosciute localmente in un piano strutturato: status, kind, from, to. Le domande rapide e i controlli non richiedono chiamate AI. Non è ancora una chat con memoria o un analista che produce commenti liberi: riepiloghi e tabelle rimangono interamente deterministici. Il catalogo non include ancora le estensioni dei 20 casi di collaudo.
 
-Configurazione futura: chiave dedicata solo variabile server, progetto con limite di spesa, output limitato, niente NEXT_PUBLIC, nessuna chiave nei fogli/browser/log. Al modello solo domanda e schema delle funzioni, senza esportare database, nominativi, telefoni, email o note clienti. Anche una domanda scritta dall'utente può contenere dati personali: minimizzazione e oscuramento da collaudare prima dell'attivazione. Nessuna memoria di conversazione persistente necessaria per queste tre domande.
+Configurazione server Vercel del progetto car-one-crm (mai NEXT_PUBLIC, browser, fogli o repository):
 
-I dati API OpenAI non sono usati per addestramento per impostazione predefinita; ciò non significa assenza di conservazione. I log di monitoraggio possono essere conservati fino a 30 giorni e si applicano condizioni/limiti per endpoint e controlli speciali. store:false non equivale a Zero Data Retention. Verificare account, configurazione, informativa e trattamento prima dell'invio di dati aziendali reali. Riferimento: https://developers.openai.com/api/docs/guides/your-data .
+- GEMINI_API_KEY: chiave dedicata creata in Google AI Studio.
+- ASSISTANT_GEMINI_ENABLED=true: consenso operativo all'attivazione. Senza chiave o senza questo flag, nessuna chiamata al fornitore.
+- GEMINI_MODEL=gemini-3.5-flash-lite: modello iniziale configurabile, da verificare nell'account. Nessun fallback automatico a un modello più costoso.
+
+Dopo aver configurato le variabili occorre un nuovo deployment. La schermata indica se il collegamento è configurato, non certifica la validità della chiave o la disponibilità del modello: queste richiedono una prova reale. GET /api/assistant richiede il login e restituisce solo un booleano di configurazione.
+
+L'API è chiamata dal server con header x-goog-api-key, timeout 20 secondi, una chiamata per domanda non riconosciuta, nessun retry automatico, limite output 512 token. Throttle best effort per processo: 10 chiamate/minuto, 2 contemporanee. Le istanze serverless non condividono tale contatore: non è un limite di spesa globale. Per un limite economico servono quote del progetto/provider o un contatore persistente; non assumere che gli avvisi budget blocchino la spesa.
+
+Payload: istruzioni aziendali compilate da docs/assistente-car-one-istruzioni.md, catalogo reale delle funzioni, data corrente Europe/Rome e domanda dell'utente. Nessun risultato, riga, nome cliente, venditore, targa o URL delle fonti viene estratto dal CRM per l'invio. La domanda libera può però contenere informazioni personali: l'UI avvisa di non inserirle; i controlli bloccano identificativi comuni (email, telefoni, targhe, URL e alcune richieste nominative), senza garantire anonimizzazione completa. Limitare la prova a domande aggregate. Nessuna persistenza di conversazioni o log del contenuto.
+
+Il JSON del modello viene rivalidato dal backend: schema chiuso, indicatori permessi, date reali, limite 367 giorni, contratti 2024–2026. Risposte incomplete, filtri aggiuntivi, errore quota e timeout non diventano numeri. L'utente vede il periodo e i filtri interpretati e può usare i controlli espliciti. Un modello può interpretare erroneamente l'intento pur producendo parametri formalmente validi: collaudare anche filtri ignorati e ambiguità con le domande del dataset prima di estendere l'uso.
+
+Le istruzioni aziendali sono incorporate come testo nel modulo server lib/assistant/gemini.ts; quando si modifica il manuale occorre aggiornarne la copia compilata. Le risposte attese e i totali del collaudo non vengono inseriti nel prompt.
+
+Non viene creata una chiave né attivata fatturazione da questo codice. I termini Gemini richiedono Paid Services per applicazioni destinate a utenti EEA; per l'API ciò richiede un progetto con fatturazione attiva. Non presentare la prova nel CRM italiano come gratuita garantita. Verificare quote, costi, account e trattamento prima dell'attivazione. Finché disattivata, nessun costo Gemini. Riferimenti ufficiali consultati il 23 ottobre 2026:
+
+- https://ai.google.dev/gemini-api/docs/generate-content/structured-output
+- https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite
+- https://ai.google.dev/gemini-api/terms
+- https://ai.google.dev/gemini-api/docs/pricing
 
 ## Collaudo
 
