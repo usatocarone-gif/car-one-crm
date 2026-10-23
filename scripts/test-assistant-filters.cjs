@@ -33,6 +33,9 @@ assert.equal(parse('Quanti preventivi ha preparato Caironi a dicembre 2025?').ki
 assert.throws(()=>parse('Quanti contratti ha fatto Caironi?'),/Per quale periodo/);
 assert.throws(()=>parse('Quanti contratti ha fatto Caironi a dicembre?'),/Di quale anno/);
 assert.throws(()=>parse('Quanti contratti ha fatto Caironi a dicembre 2025 e gennaio 2026?'),/un solo periodo/);
+assert.equal(parse('Confronta i contratti del 2025 rispetto al 2026'),undefined);
+assert.equal(parse('Quanti contratti ha fatto Caironi dal 01/12/2025 al 31/12/2025?'),undefined);
+assert.equal(parse('Quanti contratti ha fatto Caironi da gennaio a marzo 2025?'),undefined);
 assert.throws(()=>parse('Quanti contratti ha fatto Caironi a dicembre del 2027?'),/2024 al 2026/);
 assert.equal(parse('Quanti contratti ha fatto Caironi a dicembre 2025 solo Facebook?'),undefined);
 assert.equal(parse('Quanti contratti ha fatto Rossi a dicembre 2025?'),undefined);

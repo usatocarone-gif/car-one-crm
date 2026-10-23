@@ -10,8 +10,11 @@ export function localConversation(question:string,context?:AssistantQuery,now=ne
     .replace(new RegExp(`\\b(${months.join("|")}) (?:del|dell[’']) ?(20\\d{2})\\b`,"g"),"$1 $2");
   const namedMonths=text.match(new RegExp(`\\b(?:${months.join("|")})\\b`,"g"))||[];
   const namedYears=text.match(/\b20\d{2}\b/g)||[];
-  if(!/\bdal \d{4}-\d{2}-\d{2} al \d{4}-\d{2}-\d{2}\b/.test(text)&&(namedMonths.length>1||namedYears.length>1))
+  if(!/\bdal \d{4}-\d{2}-\d{2} al \d{4}-\d{2}-\d{2}\b/.test(text)&&(namedMonths.length>1||namedYears.length>1)){
+    // Leave explicit comparisons and natural-language ranges to the validated planner.
+    if(/\b(?:confront\w*|rispetto|contro|tra|fra|da|dal)\b/.test(text))return undefined;
     throw new Error("Indica un solo periodo per questa domanda. Per un confronto specifica due intervalli precedenti, distinti e della stessa durata.");
+  }
   const follow=!!previous&&/^(?:e\b|invece\b|a che prezzo|chi le ha vendute)/.test(text);
   const base:Partial<AssistantQuery>=follow?{...previous}:{};
   text=text.replace(/^(?:e |invece )/,"");
