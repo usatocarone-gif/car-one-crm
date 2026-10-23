@@ -2,6 +2,12 @@
 
 MVP della dashboard commerciale per il concessionario usato Car One.
 
+## Assistente Car One (pilota non rilasciato)
+
+Implementazione in sola lettura, tre interrogazioni controllate, accesso CRM esistente e nessun servizio AI o vocale attivo. Regole degli indicatori, copertura, test e passaggi di rilascio: [documentazione del pilota](docs/assistente-car-one.md).
+
+La base Apps Script verificata è `integrations/apps-script/published-v51.gs`. I file API V4–V7 sono versioni storiche. Il candidato si genera con `node scripts/build-assistant-script.mjs`; generarlo non effettua il deployment.
+
 ## Funzioni disponibili
 
 - viste Oggi, Settimana e Mese & forecast;
