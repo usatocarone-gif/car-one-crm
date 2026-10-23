@@ -9,8 +9,11 @@ import { LeadDailyQualityPanel } from "@/app/components/lead-daily-quality";
 import { LEAD_REGION_CLUSTERS, leadCityCluster, leadRegionCluster } from "@/lib/lead-geography";
 import { DashboardLeadManagement } from "@/app/components/dashboard-lead-management";
 import { OperationalQuotes } from "@/app/components/operational-quotes";
+import { CarOneAssistant } from "@/app/components/car-one-assistant";
+import { isLeadContractOrigin } from "@/lib/contract-origin";
 
 const menu = [
+  { id: "assistant", label: "Assistente Car One", icon: BrainCircuit },
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "sources", label: "Gestione lead", icon: Users },
   { id: "agenda", label: "Appuntamenti", icon: CalendarDays },
@@ -38,9 +41,7 @@ function comparisonDelta(value: number, previous: number) {
 }
 
 function isLeadContract(item: ContractHistoryItem) {
-  const origin = item.origin.toLowerCase();
-  return ["lead", "social", "facebook", "instagram", "tiktok", "sito", "autoscout", "a24", "bdc"]
-    .some((value) => origin.includes(value));
+  return isLeadContractOrigin(item.origin);
 }
 
 function isLeadQuote(item: QuoteHistoryItem) {
@@ -1402,6 +1403,6 @@ export default function Home() {
 
   return <main className="app-shell">
     <aside className="sidebar"><div className="brand"><i /><div><strong>Car One CRM</strong><span>Usato · Perugia</span></div></div><nav>{menu.map(({ id, label, icon: Icon }) => <button key={id} className={section === id ? "active" : ""} onClick={() => setSection(id)}><Icon size={18} /><span>{label}</span></button>)}</nav><footer><CheckCircle2 size={15} /><div><strong>{payload.source === "google-live" ? "Google · cache 2 min" : "Snapshot verificato"}</strong><span>{updated || "Caricamento…"}</span>{loading && <span role="status">Aggiornamento in corso…</span>}{refreshError && <span role="alert">{refreshError}</span>}</div><button aria-label="Aggiorna dati" title="Forza lettura live da Google (può richiedere fino a 2 minuti)" onClick={() => void refresh(true)} disabled={loading}><RefreshCw size={15} className={loading ? "spin" : ""} /></button></footer></aside>
-    <section className="content">{section === "dashboard" ? <Dashboard payload={payload} period={period} setPeriod={setPeriod} onOpenLeads={() => setSection("sources")} /> : section === "ai-lead-manager" ? <LeadWorkspace payload={payload} /> : section === "channels" ? <ChannelsView payload={payload} /> : section === "sources" ? <LeadWorkspace payload={payload} /> : section === "agenda" ? <SocialAppointmentsView payload={payload} /> : section === "quotes" ? <QuotesView payload={payload} /> : section === "contracts" ? <ContractsView payload={payload} /> : section === "sellers" ? <SellersView payload={payload} /> : <Placeholder section={section} />}</section>
+    <section className="content">{section === "assistant" ? <CarOneAssistant /> : section === "dashboard" ? <Dashboard payload={payload} period={period} setPeriod={setPeriod} onOpenLeads={() => setSection("sources")} /> : section === "ai-lead-manager" ? <LeadWorkspace payload={payload} /> : section === "channels" ? <ChannelsView payload={payload} /> : section === "sources" ? <LeadWorkspace payload={payload} /> : section === "agenda" ? <SocialAppointmentsView payload={payload} /> : section === "quotes" ? <QuotesView payload={payload} /> : section === "contracts" ? <ContractsView payload={payload} /> : section === "sellers" ? <SellersView payload={payload} /> : <Placeholder section={section} />}</section>
   </main>;
 }
