@@ -48,21 +48,31 @@ export function CarOneAssistant(){
     scroller.scrollTop+=last.getBoundingClientRect().top-scroller.getBoundingClientRect().top-16;
   },[turns.length]);
   useLayoutEffect(()=>{if(input.current){input.current.style.height="auto";input.current.style.height=Math.min(input.current.scrollHeight,140)+"px";}},[question]);
+  const pending=useRef<string|undefined>(undefined);
   async function send(body:object,label:string){
     if(busy.current||voice.listening)return;voice.stopReading();setVoiceHelp(false);busy.current=true;setLoading(true);setQuestion("");setControls(false);
     const id=++serial.current;setTurns(old=>[...old,{id,question:label}]);
     abort.current=new AbortController();
     try{
       const response=await fetch("/api/assistant",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body),signal:abort.current.signal});
-      const data=await response.json();if(!response.ok)throw new Error(data.error||"Non riesco a leggere i dati in questo momento.");
+      const data=await response.json();if(!response.ok){const sent=body as {question?:string};if(data.status==="needs-clarification"&&/Per quale periodo|Di quale anno/i.test(data.error||""))pending.current=sent.question;throw new Error(data.error||"Non riesco a leggere i dati in questo momento.");}
       context.current=data.query;setTurns(old=>old.map(t=>t.id===id?{...t,answer:data}:t));
     }catch(e){setTurns(old=>old.map(t=>t.id===id?{...t,error:e instanceof Error&&e.name==="AbortError"?"Richiesta interrotta. Puoi fare un’altra domanda.":e instanceof Error?e.message:"Risposta non disponibile."}:t));}
     finally{busy.current=false;setLoading(false);if(window.matchMedia("(pointer: fine)").matches)input.current?.focus({preventScroll:true});}
   }
-  function ask(text:string){if(text.trim())void send({question:text,...(context.current?{context:context.current}:{})},text.trim());}
+  function ask(text:string){
+    if(!text.trim())return;
+    const answer=text.trim().replace(/[?!.]+$/,"");let question=text;
+    if(pending.current&&/^(?:(?:nel|del|anno) )?20\d{2}$/i.test(answer)){
+      const year=answer.match(/20\d{2}/)![0];
+      question=pending.current.replace(/[?!.]+$/,"")+(/\b(?:gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\b/i.test(pending.current)?" ":" nel ")+year;
+    }
+    if(pending.current&&/^(?:gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre) 20\d{2}$/i.test(answer))question=pending.current.replace(/[?!.]+$/,"")+" a "+answer;
+    pending.current=undefined;void send({question,...(context.current?{context:context.current}:{})},text.trim());
+  }
   const starters=[{label:"Lead di questo mese",text:"Quanti lead abbiamo ricevuto questo mese?"},{label:"Funnel e rapporti",text:"Mostrami il funnel questo mese"},{label:"Agenda e richiami di oggi",text:`Mostrami gli appuntamenti e i preventivi da richiamare il ${today()}`}];
   return <section className="assistant-chat" aria-label="Chat Assistente Car One">
-    <header className="chat-header"><div className="chat-identity"><span className="chat-mark"><Sparkles size={18}/></span><div><h1>Assistente Car One</h1><span><i/>Dati aziendali · sola lettura</span></div></div><button className="chat-reset" title="Inizia una nuova conversazione" aria-label="Nuova conversazione" disabled={loading||voice.listening||!turns.length} onClick={()=>{voice.cancelListening();voice.stopReading();setVoiceHelp(false);setTurns([]);context.current=undefined;setQuestion("");input.current?.focus({preventScroll:true});}}><Plus size={18}/><span>Nuova chat</span></button></header>
+    <header className="chat-header"><div className="chat-identity"><span className="chat-mark"><Sparkles size={18}/></span><div><h1>Assistente Car One</h1><span><i/>Dati aziendali · sola lettura</span></div></div><button className="chat-reset" title="Inizia una nuova conversazione" aria-label="Nuova conversazione" disabled={loading||voice.listening||!turns.length} onClick={()=>{voice.cancelListening();voice.stopReading();setVoiceHelp(false);setTurns([]);context.current=undefined;pending.current=undefined;setQuestion("");input.current?.focus({preventScroll:true});}}><Plus size={18}/><span>Nuova chat</span></button></header>
     <div className="chat-thread" ref={thread} role="log" aria-label="Conversazione" aria-live="polite" aria-relevant="additions text">
       {!turns.length&&<div className="chat-welcome"><span className="chat-welcome-mark"><Sparkles size={27}/></span><p className="chat-eyebrow">I NUMERI DI CAR ONE, IN UNA CONVERSAZIONE</p><h2>Da dove iniziamo?</h2><p>Chiedimi di lead, appuntamenti, preventivi e contratti.<br/>Ti aiuto a leggere i dati, una domanda alla volta.</p><div className="chat-starters">{starters.map(s=><button key={s.label} disabled={voice.listening} onClick={()=>ask(s.text)}>{s.label}<span>↗</span></button>)}</div><small>Dati e copertura delle fonti indicati in ogni risposta</small></div>}
       {turns.map((turn,index)=><article className="chat-turn" key={turn.id} ref={index===turns.length-1?lastTurn:undefined}>
