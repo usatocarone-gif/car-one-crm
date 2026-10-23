@@ -14,6 +14,31 @@ const parse=(s,ctx)=>modules['./conversation'].localConversation(s,ctx,now);
 const sold=parse('Quante Alfa Romeo Stelvio abbiamo venduto nel 2026?');
 assert.deepEqual(plain(sold),{kind:'vehicle-sales',from:'2026-01-01',to:'2026-12-31',brand:'Alfa Romeo',model:'STELVIO'});
 const leads=parse('Quanti lead ha ricevuto Caironi a settembre 2026?');
+const caironiDecember={kind:'contracts',from:'2025-12-01',to:'2025-12-31',seller:'CAIRONI'};
+for(const question of [
+ 'Quanti contratti ha fatto Caironi a dicembre 2025?',
+ 'Caironi quanti contratti ha firmato nel mese di dicembre del 2025?',
+ 'A dicembre 2025 quanti contratti ha concluso Caironi?',
+ 'Quanti contratti nel mese di dicembre 2025 ha registrato Caironi?',
+ 'Quanti contratti di Caironi durante il mese di dicembre del 2025?',
+])assert.deepEqual(plain(parse(question)),caironiDecember,question);
+for(const seller of schema.ASSISTANT_SELLERS)assert.deepEqual(plain(parse(`Quanti contratti ha fatto ${seller} a dicembre 2025?`)),{...caironiDecember,seller});
+assert.deepEqual(plain(parse('E a novembre?',caironiDecember)),{...caironiDecember,from:'2025-11-01',to:'2025-11-30'});
+assert.deepEqual(plain(parse('E Pagliara?',caironiDecember)),{...caironiDecember,seller:'PAGLIARA'});
+assert.deepEqual(plain(parse('E nel 2024?',caironiDecember)),{...caironiDecember,from:'2024-12-01',to:'2024-12-31'});
+assert.equal(parse('Quanti contratti da lead ha fatto Caironi a dicembre 2025?').kind,'lead-contracts');
+assert.equal(parse('Quanti appuntamenti ha preso Caironi a dicembre 2025?').kind,'appointments');
+assert.equal(parse('Quanti appuntamenti ha fissato Caironi a dicembre 2025?').kind,'appointments');
+assert.equal(parse('Quanti preventivi ha preparato Caironi a dicembre 2025?').kind,'quotes');
+assert.throws(()=>parse('Quanti contratti ha fatto Caironi?'),/Per quale periodo/);
+assert.throws(()=>parse('Quanti contratti ha fatto Caironi a dicembre?'),/Di quale anno/);
+assert.throws(()=>parse('Quanti contratti ha fatto Caironi a dicembre 2025 e gennaio 2026?'),/un solo periodo/);
+assert.throws(()=>parse('Quanti contratti ha fatto Caironi a dicembre del 2027?'),/2024 al 2026/);
+assert.equal(parse('Quanti contratti ha fatto Caironi a dicembre 2025 solo Facebook?'),undefined);
+assert.equal(parse('Quanti contratti ha fatto Rossi a dicembre 2025?'),undefined);
+assert.equal(parse('Quanti contratti e preventivi ha fatto Caironi a dicembre 2025?'),undefined);
+assert.equal(parse('Quanti contratti abbiamo fatto a dicembre 2025?',caironiDecember).seller,undefined);
+assert.deepEqual(plain(parse('E quanti preventivi ha fatto?',{...caironiDecember,analysis:'seller-ranking'})),{...caironiDecember,kind:'quotes'});
 assert.deepEqual(plain(leads),{kind:'leads',from:'2026-09-01',to:'2026-09-30',seller:'CAIRONI'});
 assert.equal(parse('Quante Alfa Romeo Stelvio ha venduto Caironi nel 2026?').seller,'CAIRONI');
 let follow=parse('E nel 2025?',sold);assert.equal(follow.brand,sold.brand);assert.equal(follow.model,sold.model);assert.equal(follow.to,'2025-12-31');
@@ -79,6 +104,9 @@ console.log('PASS: composable filters, exact vehicle tokens, period/seller/model
   const plans=[];
   const planner=modules['@/lib/assistant/gemini']=load('lib/assistant/gemini.ts',{}, {fetch:async(url,init)=>{plans.push(JSON.parse(init.body));return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify({status:'query',...sold,seller:'CAIRONI'})}]}}]});}});
   const planned=await planner.planWithGemini('Vendite Stelvio del venditore Caironi nel 2026',now,sold);assert.equal(planned.seller,'CAIRONI');assert.equal(planned.model,'STELVIO');
+  const callsBefore=plans.length;
+  assert.deepEqual(plain(await planner.interpretAssistantQuestion('Quanti contratti ha fatto Caironi nel mese di dicembre del 2025?')),{query:caironiDecember,engine:'local'});
+  assert.equal(plans.length,callsBefore); // deterministic composition does not call the provider
   assert.deepEqual(plain(JSON.parse(plans[0].contents[0].parts[0].text).context),plain(sold));
   await assert.rejects(planner.interpretAssistantQuestion('Quante auto con targa AA123BB abbiamo venduto nel 2026?'));
   const calls=[];
@@ -93,6 +121,8 @@ console.log('PASS: composable filters, exact vehicle tokens, period/seller/model
   const periods=await server.readAssistant({...weekly,kind:'contracts'});assert.ok(periods.rows.some(r=>r.comparisonPeriod));assert.ok(periods.rows.every(r=>r.date===(r.comparisonPeriod?weekly.compareFrom:weekly.from)));
   const route=load('app/api/assistant/route.ts',{'next/server':{NextResponse:{json:(body,init={})=>Response.json(body,init)}}});
   const auth='Basic '+Buffer.from('test:test').toString('base64');
+  const composed=await route.POST(new Request('https://crm.example/api/assistant',{method:'POST',headers:{authorization:auth,'content-type':'application/json'},body:JSON.stringify({question:'Quanti contratti ha fatto Caironi a dicembre 2025?'})}));
+  const counted=await composed.json();assert.equal(composed.status,200);assert.deepEqual(plain(counted.query),caironiDecember);assert.equal(counted.recordCount,601);assert.match(counted.filters,/CAIRONI/);assert.ok(counted.rows.every(r=>r.seller==='CAIRONI'&&r.date==='2025-12-01'));
   const response=await route.POST(new Request('https://crm.example/api/assistant',{method:'POST',headers:{authorization:auth,'content-type':'application/json'},body:JSON.stringify({question:'Quante Alfa Romeo Stelvio ha venduto Caironi nel 2026?'})}));
   const body=await response.json();assert.equal(response.status,200);assert.equal(body.rows.length,500);assert.equal(body.recordCount,601);assert.match(body.presentation.insights[0].observation,/601 record su 601/);assert.match(body.filters,/CAIRONI.*Alfa Romeo.*STELVIO/);assert.match(body.presentation.title,/601/);assert.equal(body.presentation.metrics.find(m=>m.label.startsWith('Prezzo medio')).value,'10.000 €');
   assert.equal((await route.POST(new Request('https://crm.example/api/assistant',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(sold)}))).status,401);
