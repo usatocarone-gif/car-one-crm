@@ -110,6 +110,7 @@ async function testGemini(){
   let g=load('lib/assistant/gemini.ts',{'./schema':schema},{fetch:mock});
   await assert.rejects(g.planWithGemini('Quante vendite registrate nel 2024?'),/non è ancora attivo/);assert.equal(sent,0);
   process.env.ASSISTANT_GEMINI_ENABLED='true';delete process.env.GEMINI_MODEL;
+  assert.doesNotThrow(()=>g.validatePublicQuestion('Vendite dal 2026-01-01 al 23/10/2026'));
   for(const question of ['cliente di nome Mario Rossi','email test@example.test','targa AB123CD','telefono 3331234567','vedi https://example.test'])await assert.rejects(g.planWithGemini(question));
   assert.equal(sent,0);
   assert.equal((await g.interpretAssistantQuestion('Quanti contratti abbiamo nel 2025?')).engine,'local');assert.equal(sent,0);

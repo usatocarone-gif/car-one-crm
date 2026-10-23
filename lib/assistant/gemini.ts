@@ -7,7 +7,8 @@ export function geminiConfigured() {
 export function validatePublicQuestion(question: string) {
   if (!question.trim() || question.length > 600) throw new Error("Scrivi una domanda entro 600 caratteri.");
   // Reject identifiers instead of silently deleting a filter; not complete anonymization.
-  if (/@|https?:|www\.|\b[A-Z]{2}\s?\d{3}\s?[A-Z]{2}\b|\b(?:\+?\d[\s().-]?){7,}\b/i.test(question) || /\b(cliente|clienti)\s+(?:di nome|chiamat[oa]|con nome)|\b(codice fiscale|telefono|email|targa|indirizzo)\b/i.test(question))
+  const identifiers=question.replace(/\b\d{4}-\d{2}-\d{2}\b|\b\d{2}\/\d{2}\/\d{4}\b/g,"[data]");
+  if (/@|https?:|www\.|\b[A-Z]{2}\s?\d{3}\s?[A-Z]{2}\b|\b(?:\+?\d[\s().-]?){7,}\b/i.test(identifiers) || /\b(cliente|clienti)\s+(?:di nome|chiamat[oa]|con nome)|\b(codice fiscale|telefono|email|targa|indirizzo)\b/i.test(question))
     throw new Error("Per questa prova usa domande aggregate, senza nomi clienti, recapiti, targhe o altri dati personali.");
 }
 const planSchema = {
