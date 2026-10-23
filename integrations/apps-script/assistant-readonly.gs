@@ -33,14 +33,23 @@ function assistantIssue_(source, message) {
 }
 function assistantRead_(parameter) {
   const q = {kind:parameter.kind,from:parameter.from,to:parameter.to};
-  if (['contracts','lead-contracts','agenda-quotes','lead-quality'].indexOf(q.kind) < 0 || assistantDay_(q.from) !== q.from || assistantDay_(q.to) !== q.to || q.from > q.to) throw new Error('Parametri assistente non validi');
+  if (['contracts','lead-contracts','agenda-quotes','lead-quality','leads','quotes','appointments','funnel','lead-management'].indexOf(q.kind) < 0 || assistantDay_(q.from) !== q.from || assistantDay_(q.to) !== q.to || q.from > q.to) throw new Error('Parametri assistente non validi');
   if ((Date.parse(q.to) - Date.parse(q.from)) / 86400000 > 366 || (q.kind === 'agenda-quotes' && q.from !== q.to)) throw new Error('Periodo assistente non valido');
   const now = new Date(), readAt = now.toISOString();
   const result = {schemaVersion:'assistant-v1',query:q,generatedAt:readAt,sources:[],rows:[],truncated:false};
   if (q.kind === 'contracts' || q.kind === 'lead-contracts') assistantContracts_(result,now);
   if (q.kind === 'agenda-quotes') assistantAgendaQuotes_(result,now);
   if (q.kind === 'lead-quality') assistantLeadQuality_(result);
-  if (result.rows.length > 10000) { result.truncated = true; result.rows = []; }
+  function read(dataset,reader){const count=result.sources.length;reader();result.sources.slice(count).forEach(function(source){source.dataset=dataset;});}
+  if (q.kind === 'leads' || q.kind === 'funnel') read('leads',function(){assistantLeads_(result,now);});
+  if (q.kind === 'quotes' || q.kind === 'funnel') read('quotes',function(){assistantQuotes_(result,now);});
+  if (q.kind === 'appointments' || q.kind === 'funnel') read('appointments',function(){assistantAppointments_(result);});
+  if (q.kind === 'lead-management') read('management',function(){assistantManagement_(result,now);});
+  if (q.kind === 'funnel') {
+    const count=result.rows.length;read('contracts',function(){assistantContracts_(result,now);});
+    result.rows.slice(count).forEach(function(row){row.metric='contract';});
+  }
+  if (result.rows.length > 50000) { result.truncated = true; result.rows = []; }
   return result;
 }
 function assistantContracts_(result,now) {
@@ -185,4 +194,152 @@ function verificaAssistenteCarOne() {
   const quality=assistantRead_({kind:'lead-quality',from:'2026-10-01',to:'2026-10-20'});
   console.log(JSON.stringify({check:'other-sources',agenda:safeSummary(agenda),quoteRecords:(agenda.operationalQuotes||[]).length,quality:safeSummary(quality),due:quality.rows.filter(function(r){return r.measurement==='evening-observation';}).reduce(function(n,r){return n+r.due;},0),managed:quality.rows.filter(function(r){return r.measurement==='evening-observation';}).reduce(function(n,r){return n+r.managed;},0)}));
   console.log(JSON.stringify({check:'assistant-v1',contracts2025:safeSummary(contracts),leadContracts2025:safeSummary(leadContracts),checkedAt:now.toISOString()}));
+}
+
+// Timestamp validation for acquisition sources; legacy dashboard parsers stay unchanged.
+function assistantArrival_(value) {
+  if (value instanceof Date) return isFinite(value.getTime()) ? {day:assistantDay_(value),instant:value.toISOString()} : null;
+  const text=String(value==null?'':value).trim();
+  const day=assistantDay_(text); if(day)return {day:day,instant:null};
+  const iso=text.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/);
+  if(iso){
+    if(!assistantDay_(iso[1])||+iso[2]>23||+iso[3]>59||+iso[4]>59)return null;
+    if(iso[6]!=='Z'&&(+iso[6].slice(1,3)>14||+iso[6].slice(4)>59||(+iso[6].slice(1,3)===14&&+iso[6].slice(4)!==0)))return null;
+    const date=new Date(text);return isFinite(date.getTime())?{day:assistantDay_(date),instant:date.toISOString()}:null;
+  }
+  const italian=text.match(/^(\d{1,2}\/\d{1,2}\/\d{4}) (\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if(italian&&assistantDay_(italian[1])&&+italian[2]<=23&&+italian[3]<=59&&+(italian[4]||0)<=59){
+    // Preserve the local day. A local timestamp without UTC offset is not a certified instant.
+    return {day:assistantDay_(italian[1]),instant:null};
+  }
+  return null;
+}
+function assistantOpenLeads_(result) {
+  try{return SpreadsheetApp.openById(LEADS_ID);}
+  catch(_){result.sources.push({name:'Make Leads',status:'unavailable',readAt:result.generatedAt,coverage:result.query.from+' / '+result.query.to,issues:['Fonte non accessibile']});return null;}
+}
+function assistantLeads_(result,now) {
+  const book=assistantOpenLeads_(result);if(!book)return;
+  const today=assistantDay_(now),month=today.slice(0,7),q=result.query;
+  const specs=leadHistorySources_(book,now).concat([{name:'Maggio',year:2025,month:5}]);
+  const required={};
+  for(let cursor=new Date(q.from.slice(0,7)+'-01T12:00:00Z');cursor.toISOString().slice(0,10)<=q.to;cursor.setUTCMonth(cursor.getUTCMonth()+1)){
+    const key=cursor.toISOString().slice(0,7);if(key<=month)required[key]=false;
+  }
+  const selected=[],names={};
+  specs.forEach(function(spec){const key=spec.year+'-'+('0'+spec.month).slice(-2);if(key<month&&Object.prototype.hasOwnProperty.call(required,key)&&!names[spec.name]){selected.push({name:spec.name,month:key});names[spec.name]=true;if(book.getSheetByName(spec.name))required[key]=true;}});
+  if(Object.prototype.hasOwnProperty.call(required,month)){
+    selected.push({name:'Foglio1',month:month});required[month]=Boolean(book.getSheetByName('Foglio1'));
+  }
+  // Pagliara's sheet also retains earlier arrivals. Do not assume it is current-month only.
+  selected.push({name:'giuseppe lead',month:null});
+  Object.keys(required).forEach(function(key){if(!required[key])result.sources.push({name:'Archivio lead '+key,status:'unavailable',readAt:result.generatedAt,coverage:key,issues:['Copertura mensile non configurata o archivio mancante; non equivale a zero']});});
+  if(q.to>today)result.sources.push({name:'Lead: date future',status:'partial',readAt:result.generatedAt,coverage:q.from+' / '+q.to,issues:['Arrivi futuri esclusi']});
+  const candidates=[];
+  selected.forEach(function(spec){
+    const source=assistantSource_(spec.name,result.generatedAt,spec.month||'Lead Pagliara nelle date richieste');result.sources.push(source);
+    try{
+      const sheet=book.getSheetByName(spec.name);if(!sheet)throw new Error();
+      if(sheet.getLastRow()<1)return;
+      const values=sheet.getRange(1,1,sheet.getLastRow(),10).getValues();
+      const first=assistantArrival_(values[0][0])?0:1;
+      values.slice(first).forEach(function(row,index){
+        if(!row.some(function(v){return v!==''&&v!==null;}))return;
+        const arrival=assistantArrival_(row[0]);
+        if(!arrival){assistantIssue_(source,'Data arrivo esclusa: riga '+(index+first+1));return;}
+        if(arrival.day<q.from||arrival.day>q.to||arrival.day>today)return;
+        if(spec.month&&arrival.day.slice(0,7)!==spec.month){assistantIssue_(source,'Data fuori archivio: riga '+(index+first+1));return;}
+        if(!row[1]&&!row[2]&&!row[4]){assistantIssue_(source,'Riga senza riferimenti lead esclusa: '+(index+first+1));return;}
+        const rawId=String(row[9]||'').trim();
+        const id=/^(?:\d{10,30}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(rawId)?rawId:'';
+        if(rawId&&!id)assistantIssue_(source,'Valore non riconosciuto come ID lead: riga '+(index+first+1));
+        const identity=JSON.stringify([arrival.instant||arrival.day,String(row[2]||'').trim().toLowerCase(),String(row[4]||'').replace(/\D/g,''),String(row[1]||'').trim().toLowerCase()]);
+        candidates.push({key:id?'id:'+id:'event:'+identity,identity:identity,source:source,date:arrival.day,arrivedAt:arrival.instant,category:'Lead ricevuti',metric:'lead',channel:normalizeSource_(row[5]),seller:'Tutta l’azienda',value:1,evidence:assistantRef_(book,sheet,index+first+1,row)});
+      });
+    }catch(_){source.status='unavailable';source.issues.push('Lettura lead non completata');}
+  });
+  const seen={},byId={},byIdentity={};
+  candidates.forEach(function(row){
+    if(row.source.status==='unavailable')return;
+    if(!byIdentity[row.identity])byIdentity[row.identity]={};
+    if(row.key.indexOf('id:')===0){
+      byIdentity[row.identity][row.key]=true;
+      if(!byId[row.key])byId[row.key]={};byId[row.key][row.identity]=true;
+    }
+  });
+  // Prefer ID-bearing representatives of exact events; never merge distinct explicit IDs.
+  candidates.sort(function(a,b){return (a.key.indexOf('id:')===0?0:1)-(b.key.indexOf('id:')===0?0:1);});
+  candidates.forEach(function(row){
+    if(row.source.status==='unavailable')return;
+    const hasId=row.key.indexOf('id:')===0,ids=Object.keys(byIdentity[row.identity]||{});
+    if(hasId&&Object.keys(byId[row.key]).length>1){assistantIssue_(row.source,'ID lead con eventi discordanti escluso: riga '+row.evidence.row);return;}
+    if(!hasId&&ids.length>1){assistantIssue_(row.source,'Copia senza ID ambigua esclusa: riga '+row.evidence.row);return;}
+    const key=hasId?row.key:ids[0]||row.key;
+    if(seen[key]){assistantIssue_(row.source,'Copia dello stesso evento esclusa: riga '+row.evidence.row);return;}
+    seen[key]=true;
+    delete row.key;delete row.identity;delete row.source;result.rows.push(row);
+  });
+}
+function assistantQuotes_(result,now) {
+  const book=assistantOpenLeads_(result);if(!book)return;
+  const source=assistantSource_('Preventivi',result.generatedAt,'Righe conservate nel tab Preventivi; completezza storica non certificata');
+  result.sources.push(source);
+  // There is no archive register asserting that missing months contain zero quotes.
+  assistantIssue_(source,'Copertura storica del tab non certificata: conteggio delle righe valide presenti, non totale certo di tutti i preventivi emessi.');
+  try{
+    const sheet=book.getSheetByName('Preventivi');if(!sheet)throw new Error();if(sheet.getLastRow()<2)return;
+    const rows=sheet.getRange(2,1,sheet.getLastRow()-1,8).getValues(),seen={};
+    rows.forEach(function(row,index){
+      if(!row.some(function(v){return v!==''&&v!==null;}))return;
+      const arrival=assistantArrival_(row[0]);if(!arrival){assistantIssue_(source,'Data preventivo esclusa: riga '+(index+2));return;}
+      if(arrival.day<result.query.from||arrival.day>result.query.to||arrival.day>assistantDay_(now))return;
+      const key=JSON.stringify(row);if(seen[key]){assistantIssue_(source,'Preventivo duplicato esatto escluso: riga '+(index+2));return;}seen[key]=true;
+      result.rows.push({date:arrival.day,category:'Preventivi registrati',metric:'quote',seller:normalizeHistorySeller_(row[3]),channel:String(row[7]||'').trim()||'Non indicata',value:1,evidence:assistantRef_(book,sheet,index+2,row)});
+    });
+  }catch(_){source.status='unavailable';source.issues.push('Fonte preventivi non accessibile');result.rows=result.rows.filter(function(r){return r.metric!=='quote';});}
+}
+function assistantAppointments_(result) {
+  const q=result.query,start=Utilities.parseDate(q.from+' 00:00','Europe/Rome','yyyy-MM-dd HH:mm');
+  const next=new Date(Date.parse(q.to+'T12:00:00Z')+86400000).toISOString().slice(0,10);
+  const end=Utilities.parseDate(next+' 00:00','Europe/Rome','yyyy-MM-dd HH:mm'),seen={};
+  CRM_REPORT_CALENDAR_IDS.forEach(function(id){
+    const source=assistantSource_('Calendario '+id,result.generatedAt,q.from+' / '+q.to);result.sources.push(source);
+    try{
+      const calendar=CalendarApp.getCalendarById(id);if(!calendar)throw new Error();
+      const rows=[];
+      calendar.getEvents(start,end).forEach(function(event){
+        if(!/\bAPP\b/i.test(event.getTitle()))return;
+        const date=event.getStartTime(),day=assistantDay_(date);if(day<q.from||day>q.to)return;
+        const key=event.getId()+'|'+date.toISOString();if(seen[key])return;seen[key]=true;
+        const eid=Utilities.base64EncodeWebSafe(event.getId().replace(/@google.com$/,'')+' '+id).replace(/=+$/,'');
+        rows.push({date:day,category:'Appuntamenti',metric:'appointment',seller:sellerFromText_(event.getTitle()),status:appointmentStatus_(event.getTitle()),value:1,evidence:{locatorId:key,source:source.name,url:'https://calendar.google.com/calendar/u/0/r/eventedit/'+eid}});
+      });
+      result.rows=result.rows.concat(rows);
+    }catch(_){source.status='unavailable';source.issues.push('Calendario non accessibile');}
+  });
+}
+function assistantManagement_(result,now) {
+  const books={},seen={};
+  LEAD_MANAGEMENT_SOURCES.forEach(function(spec){
+    const source=assistantSource_('Gestione '+spec.seller,result.generatedAt,'Stato feedback attuale per data di ingresso nei fogli venditori');result.sources.push(source);
+    try{
+      const book=books[spec.id]||(books[spec.id]=SpreadsheetApp.openById(spec.id)),sheet=book.getSheetByName(spec.sheet);if(!sheet)throw new Error();
+      if(sheet.getLastRow()<2)return;
+      const rows=sheet.getDataRange().getValues(),headers=rows[0].map(function(v){return String(v).trim().toLowerCase();});
+      const dateIndex=headerIndex_(headers,['data']),feedbackIndex=headerIndex_(headers,['feedback']);if(dateIndex<0||feedbackIndex<0)throw new Error();
+      const idIndex=headerIndex_(headers,['lead id','lead_id']);
+      const items=[];
+      rows.slice(1).forEach(function(row,index){
+        if(!row.some(function(v){return v!==''&&v!==null;}))return;
+        const arrival=assistantArrival_(row[dateIndex]);if(!arrival){assistantIssue_(source,'Data esclusa: riga '+(index+2));return;}
+        if(arrival.day<result.query.from||arrival.day>result.query.to||arrival.day>assistantDay_(now))return;
+        const id=idIndex>=0?String(row[idIndex]||'').trim():'';
+        // Unique assignment records, not a company count of distinct people.
+        const key=spec.seller+'|'+(id||JSON.stringify(row));
+        if(seen[key]){assistantIssue_(source,'Assegnazione duplicata esclusa: riga '+(index+2));return;}seen[key]=true;
+        items.push({date:arrival.day,category:'Assegnazioni lead',metric:'management',seller:spec.seller,feedback:String(row[feedbackIndex]==null?'':row[feedbackIndex]).trim()!=='',value:1,evidence:assistantRef_(book,sheet,index+2,row)});
+      });
+      result.rows=result.rows.concat(items);
+    }catch(_){source.status='unavailable';source.issues.push('Foglio venditore non accessibile o schema non valido');}
+  });
 }
