@@ -79,6 +79,7 @@ export async function interpretAssistantQuestion(question:string,context?:Assist
   const local=localConversation(question,context);
   if(local)return {query:local,engine:"local" as const};
   if(/\b(?:prezzo obiettivo|prezzo atteso|obiettivo di prezzo)\b/i.test(question))throw new Error("Nei dati non è registrato un obiettivo di prezzo. Posso analizzare i prezzi realizzati usando IMP. FATT., come concordato.");
+  if(context&&/^(?:perch[eé]|cosa (?:emerge|dovrei controllare)|che cosa (?:emerge|dovrei controllare)|quali spunti(?: di ragionamento)?|come possiamo migliorare|cosa mi consigli)(?:[?!.]+)?$/i.test(question.trim()))return {query:validateQuery(context),engine:"local" as const};
   if(context){
     const previous=validateQuery(context);
     const follow=question.toLowerCase().trim().replace(/[?!.]+$/," ").trim();

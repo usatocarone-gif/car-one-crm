@@ -7,6 +7,7 @@ const filters=modules['./filters']=modules['@/lib/assistant/filters']=load('lib/
 modules['./conversation']=load('lib/assistant/conversation.ts');
 modules['../contract-origin']=load('lib/contract-origin.ts');
 modules['./analytics']=load('lib/assistant/analytics.ts');
+modules['./insights']=load('lib/assistant/insights.ts');
 const summary=modules['@/lib/assistant/summary']=load('lib/assistant/summary.ts');
 const now=new Date('2026-10-23T12:00:00Z'),plain=v=>JSON.parse(JSON.stringify(v));
 const parse=(s,ctx)=>modules['./conversation'].localConversation(s,ctx,now);
@@ -93,7 +94,7 @@ console.log('PASS: composable filters, exact vehicle tokens, period/seller/model
   const route=load('app/api/assistant/route.ts',{'next/server':{NextResponse:{json:(body,init={})=>Response.json(body,init)}}});
   const auth='Basic '+Buffer.from('test:test').toString('base64');
   const response=await route.POST(new Request('https://crm.example/api/assistant',{method:'POST',headers:{authorization:auth,'content-type':'application/json'},body:JSON.stringify({question:'Quante Alfa Romeo Stelvio ha venduto Caironi nel 2026?'})}));
-  const body=await response.json();assert.equal(response.status,200);assert.equal(body.rows.length,500);assert.equal(body.recordCount,601);assert.match(body.filters,/CAIRONI.*Alfa Romeo.*STELVIO/);assert.match(body.presentation.title,/601/);assert.equal(body.presentation.metrics.find(m=>m.label.startsWith('Prezzo medio')).value,'10.000 €');
+  const body=await response.json();assert.equal(response.status,200);assert.equal(body.rows.length,500);assert.equal(body.recordCount,601);assert.match(body.presentation.insights[0].observation,/601 record su 601/);assert.match(body.filters,/CAIRONI.*Alfa Romeo.*STELVIO/);assert.match(body.presentation.title,/601/);assert.equal(body.presentation.metrics.find(m=>m.label.startsWith('Prezzo medio')).value,'10.000 €');
   assert.equal((await route.POST(new Request('https://crm.example/api/assistant',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(sold)}))).status,401);
   console.log('PASS: planner filters/context, privacy guard, unchanged v53 source queries, API authentication, all-row totals before 500-record sample');
  }finally{for(const key of Object.keys(process.env))if(!(key in old))delete process.env[key];Object.assign(process.env,old);}

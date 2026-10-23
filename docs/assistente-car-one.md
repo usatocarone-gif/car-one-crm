@@ -163,3 +163,12 @@ Domande locali: “Quali auto abbiamo venduto nel 2025?”, “Marche e modelli 
 ## Filtri e memoria conversazionale
 
 L’estensione successiva alla PR 7 abilita venditore e, per le auto vendute, marca/modello. I filtri sono visibili in ogni risposta e vengono letti anche dalla voce. Le domande comuni non richiedono Gemini. Il fornitore riceve soltanto domanda e ultimo contesto validato; il cognome del venditore può essere presente. Per i lead di un venditore si contano le assegnazioni conservate nel suo foglio per Data, con copertura storica dichiarata parziale. Non è prova dell’ora di assegnazione o della gestione. Implementazione e collaudo in assistente-car-one-mappa-crm.md. Riusa il backend Apps Script v53 già pubblicato.
+
+
+## Spunti per ragionare (estensione successiva alla PR 8)
+
+Ogni risposta include fino a due spunti, apribili nella sezione “Spunti per ragionare”: dato osservato, da verificare, azione possibile. Stesse informazioni nella lettura vocale. Generazione deterministica sul risultato validato completo, prima del campione dei riferimenti; nessuna chiamata AI, servizio aggiuntivo o invio di risultati al modello. Non è un’analisi causale o una raccomandazione automatica su persone, budget o acquisti.
+
+Regole: risultato troncato o fonte indisponibile → solo controllo copertura; dati parziali → priorità a esclusioni e omogeneità. Confronti completi possono riprendere una differenza calcolata dal backend; parziali non la trasformano in un segnale certo di crescita/calo. Classifiche → verificare opportunità ricevute prima di giudicare; tassi → denominatori e assenza di coorti. Veicoli → copertura IMP. FATT., media/mediana e dati mancanti per stock/margini. Appuntamenti passati con esito pendente non diventano no-show. Feedback mancante non prova assenza di lavoro.
+
+Seguiti “Cosa emerge?”, “Perché?”, “Cosa dovrei controllare?”, “Quali spunti di ragionamento?” e “Come possiamo migliorare?” ripetono la lettura controllata conservando tutti i filtri; le spiegazioni sono ipotesi da verificare. Questo non introduce il briefing CEO multi-fonte o dati di margine/stock/incasso non ancora collegati. Collaudo: scripts/test-assistant-insights.cjs e regressioni esistenti; includono fonte mancante, storico parziale, risultati troncati, appuntamenti futuri esclusi dagli arretrati e 601 record prima del campione 500.

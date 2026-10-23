@@ -1,11 +1,16 @@
+import { reasoningInsights, type ReasoningInsight } from "./insights";
 import { presentAnalysis } from "./analytics";
 import { presentVehicles } from "./vehicles";
 import { isLeadContractOrigin } from "../contract-origin";
 import type { AssistantResult } from "./schema";
 
 export type AssistantBreakdown = {title:string;columns:string[];rows:string[][]};
-export type AssistantPresentation = {tables?:AssistantBreakdown[];title:string;message:string;metrics:{label:string;value:string}[];partial:boolean};
+export type AssistantPresentation = {insights?:ReasoningInsight[];tables?:AssistantBreakdown[];title:string;message:string;metrics:{label:string;value:string}[];partial:boolean};
 export function presentResult(result:AssistantResult):AssistantPresentation {
+  const view=presentBaseResult(result);
+  return {...view,insights:reasoningInsights(result,view)};
+}
+function presentBaseResult(result:AssistantResult):AssistantPresentation {
   const partial=!result.sources.length||result.sources.some(s=>s.status!=="available");
   if(result.truncated)return {title:"Il periodo è troppo ampio",message:"Scegli un intervallo più breve per ottenere un totale verificabile.",metrics:[],partial:true};
   const analysis=presentAnalysis(result);if(analysis)return analysis;
