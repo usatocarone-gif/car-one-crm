@@ -92,7 +92,8 @@ function assistantContracts_(result,now) {
         }
         const seller=normalizeHistorySeller_(row[4]);
         const origin=(!spec.projection && spec.year==='2024' && spec.company==='Car One') ? '' : String(row[spec.projection?6:5]||'').trim();
-        const key=saleKey_(new Date(day+'T12:00:00Z'),row[1],row[2],seller,company);
+        const vehicleIdentity=String(row[2]||'').trim().toUpperCase()+'|'+String(row[3]||'').trim().toUpperCase();
+        const key=saleKey_(new Date(day+'T12:00:00Z'),row[1],vehicleIdentity,seller,company);
         candidates.push({key:key,source:source,date:day,category:(spec.projection?'Registrazioni provvisorie · ':'Contratti registrati · ')+company,seller:seller,value:1,origin:origin,evidence:ref});
       });
     } catch (_) { source.status='unavailable'; source.issues.push('Lettura non completata'); }
@@ -167,4 +168,21 @@ function assistantAgendaQuotes_(result,now) {
       return r;
     });
   } catch(_){source.status='unavailable';source.issues.push('Preventivi non accessibili o configurazione non valida');}
+}
+
+// Manual acceptance check: reads only; logs totals and data-quality notices, never client data.
+function verificaAssistenteCarOne() {
+  const now=new Date();
+  const contracts=assistantRead_({kind:'contracts',from:'2025-01-01',to:'2025-12-31'});
+  const leadContracts=assistantRead_({kind:'lead-contracts',from:'2025-01-01',to:'2025-12-31'});
+  function safeSummary(result){
+    const totals={};result.rows.forEach(function(r){totals[r.category]=(totals[r.category]||0)+1;});
+    return {query:result.query,totals:totals,total:result.rows.length,truncated:result.truncated,sources:result.sources.map(function(x){return {name:x.name,status:x.status,issues:x.issues.slice(0,6)};})};
+  }
+  const duplicateRows=SpreadsheetApp.openById(SALES_ID).getSheetByName('CAR 2025').getRange(232,2,2,13).getValues();
+  console.log(JSON.stringify({check:'duplicate2025',sameFields:duplicateRows[0].map(function(v,i){return {column:i+2,same:String(v)===String(duplicateRows[1][i])};}),platesPresent:duplicateRows.map(function(r){return Boolean(r[3]);})}));
+  const today=assistantDay_(now);const agenda=assistantRead_({kind:'agenda-quotes',from:today,to:today});
+  const quality=assistantRead_({kind:'lead-quality',from:'2026-10-01',to:'2026-10-20'});
+  console.log(JSON.stringify({check:'other-sources',agenda:safeSummary(agenda),quoteRecords:(agenda.operationalQuotes||[]).length,quality:safeSummary(quality),due:quality.rows.filter(function(r){return r.measurement==='evening-observation';}).reduce(function(n,r){return n+r.due;},0),managed:quality.rows.filter(function(r){return r.measurement==='evening-observation';}).reduce(function(n,r){return n+r.managed;},0)}));
+  console.log(JSON.stringify({check:'assistant-v1',contracts2025:safeSummary(contracts),leadContracts2025:safeSummary(leadContracts),checkedAt:now.toISOString()}));
 }

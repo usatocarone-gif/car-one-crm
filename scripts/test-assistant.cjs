@@ -92,3 +92,7 @@ assert.throws(()=>server.normalizeResult({...raw,query:{...query,kind:'lead-cont
 const classifierContext=vm.createContext({});vm.runInContext(candidate.match(/function assistantOriginIsLead_\(origin\) \{[^\n]+/)[0],classifierContext);
 for(const origin of ['Lead Facebook','walk-in','BDC','', 'Sito web'])assert.equal(classifierContext.assistantOriginIsLead_(origin),origins.isLeadContractOrigin(origin));
 console.log('PASS: campo Origine, Facebook/Lead varianti, walk-in esclusi, origini mancanti e parità regola CRM/Apps Script');
+
+const distinctCars=[sale('2025-10-04','Same client'),sale('2025-10-04','Same client')];distinctCars[0][3]='AA111AA';distinctCars[1][3]='BB222BB';
+tabs['CAR 2025']=makeSheet('CAR 2025',distinctCars);r=result();context.assistantContracts_(r,new Date('2026-10-23T10:00:00Z'));assert.equal(r.rows.length,2);assert.equal(r.sources[0].status,'available');
+console.log('PASS: stesso cliente/modello/giorno ma targhe diverse = due vendite distinte');

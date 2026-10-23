@@ -27,7 +27,7 @@ La chat ha un interprete locale limitato e visibile; i controlli indicatore/peri
 | --- | --- |
 | Contratti registrati nei mesi chiusi | Riga con data valida, cliente, venditore e veicolo/targa nel venduto ufficiale. La data è quella presente nella riga; non certifica consegna, fattura o incasso. |
 | Registrazioni provvisorie del mese corrente | Righe valide di PROIEZ. REDDITIVITA', solo nel mese corrente e non successive a oggi. Non vengono sommate indistintamente ai contratti dei mesi chiusi. Società non riconosciuta esclusa. |
-| Duplicati sospetti contratti | Stessa data, cliente, modello, venditore e società: tutte le occorrenze escluse, con avviso e righe da controllare. È un controllo conservativo, non una dimostrazione di identità contrattuale; due acquisti veri simili richiedono un ID contratto. |
+| Duplicati sospetti contratti | Stessa data, cliente, modello, targa, venditore e società: tutte le occorrenze escluse, con avviso e righe da controllare. È un controllo conservativo, non una dimostrazione di identità contrattuale; targhe diverse restano vendite distinte. Se manca la targa, un caso ambiguo richiede un ID contratto. |
 | Fatturato / incassi | Non disponibili nel pilota. Il campo revenue non dimostra ricavo fiscale né pagamento. Per abilitarli servono fonte contabile, data fattura/pagamento, imponibile/IVA, note di credito e regole di annullamento. |
 | Gestione registrata | Nel dato attuale, presenza del feedback. Non equivale automaticamente a contatto telefonico riuscito. |
 | Primo giorno | Il pilota espone “feedback registrato al controllo serale”, non tempo di primo contatto. Somma feedback / somma lead in scadenza delle osservazioni effettive. Ricostruzioni escluse dal tasso. Zero denominatore → n.d. |
