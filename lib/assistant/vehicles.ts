@@ -14,6 +14,7 @@ export function presentVehicles(result:AssistantResult,partial:boolean):Assistan
   const sum=amounts.reduce((a,b)=>a+b,0),median=amounts.length?(amounts[Math.floor((amounts.length-1)/2)]+amounts[Math.floor(amounts.length/2)])/2:null;
   const money=(value:number|null)=>value===null?"n.d.":value.toLocaleString("it-IT",{style:"currency",currency:"EUR",maximumFractionDigits:0});
   const provisional=(r:typeof rows[number])=>r.category.startsWith("Registrazioni provvisorie");
+  const sellers=[...new Set(rows.map(r=>r.seller))].sort();
   const brands=[...new Set(rows.map(r=>vehicleBrand(r.vehicle||"")))].sort();
   const models=new Map<string,number>();for(const row of rows){const key=(row.vehicle||"Non indicato").trim().toUpperCase().replace(/\s+/g," ");models.set(key,(models.get(key)||0)+1);}
   const rankedModels=[...models].filter(([name])=>name!=="NON INDICATO").sort(([a,n],[b,m])=>m-n||a.localeCompare(b));
@@ -26,6 +27,7 @@ export function presentVehicles(result:AssistantResult,partial:boolean):Assistan
     message:"Marche e modelli derivano dalla descrizione registrata. Il prezzo di riferimento concordato è IMP. FATT. dello storico. Valore vendita/provvigione del mese corrente escluso dagli importi. Non sono disponibili segmento, alimentazione, anno e chilometri del veicolo venduto; quelli della permuta non vengono attribuiti all’auto venduta.",
     metrics:[{label:"Marca più presente fra le classificate",value:rankedBrands.length?`${rankedBrands[0].brand} (${rankedBrands[0].count})`:"n.d."},{label:"Descrizione modello più frequente",value:rankedModels.length?`${rankedModels[0][0]} (${rankedModels[0][1]})`:"n.d."},{label:"Registrazioni ufficiali",value:String(rows.filter(r=>!provisional(r)).length)},{label:"Registrazioni provvisorie",value:String(rows.filter(provisional).length)},{label:"Con importo fattura valido",value:`${priced.length}/${rows.length}`},{label:"Prezzo medio · IMP. FATT. valorizzato",value:money(amounts.length?sum/amounts.length:null)},{label:"Prezzo mediano · IMP. FATT. valorizzato",value:money(median)}],partial,
     tables:[
+      {title:"Veicoli per venditore",columns:["Venditore","Ufficiali","Provvisori"],rows:sellers.map(s=>[s,String(rows.filter(r=>r.seller===s&&!provisional(r)).length),String(rows.filter(r=>r.seller===s&&provisional(r)).length)])},
       {title:"Marche registrate",columns:["Marca","Ufficiali","Provvisori","Con importo","Media IMP. FATT."],rows:brands.map(brand=>{const items=rows.filter(r=>vehicleBrand(r.vehicle||"")===brand),values=items.filter(r=>r.invoiceAmount!==undefined);return [brand,String(items.filter(r=>!provisional(r)).length),String(items.filter(provisional).length),String(values.length),money(values.length?values.reduce((s,r)=>s+r.invoiceAmount!,0)/values.length:null)];})},
       {title:"Top 20 descrizioni modello registrate",columns:["Descrizione nel foglio","Registrazioni"],rows:[...models].sort(([a,n],[b,m])=>m-n||a.localeCompare(b)).slice(0,20).map(([model,count])=>[model,String(count)])},
       {title:"Fasce di prezzo · IMP. FATT.",columns:["Fascia IMP. FATT.","Registrazioni"],rows:bands}

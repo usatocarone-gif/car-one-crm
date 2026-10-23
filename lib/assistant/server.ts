@@ -1,3 +1,4 @@
+import { sourceQuery, filterResult } from "./filters";
 import { gzipSync, gunzipSync } from "node:zlib";
 import { timingSafeEqual } from "node:crypto";
 import { unstable_cache } from "next/cache";
@@ -69,6 +70,7 @@ const cachedRead = unstable_cache(async (endpoint: string, kind: string, from: s
 },["assistant-v2-commercial"],{revalidate:120});
 export async function readAssistant(query: AssistantQuery) {
   if (!process.env.GOOGLE_APPS_SCRIPT_URL || !process.env.GOOGLE_APPS_SCRIPT_TOKEN) throw new Error("Fonte assistente non configurata");
-  const compressed=await cachedRead(process.env.GOOGLE_APPS_SCRIPT_URL,query.kind,query.from,query.to);
-  return JSON.parse(gunzipSync(Buffer.from(compressed,"base64")).toString("utf8")) as AssistantResult;
+  const source=sourceQuery(query);
+  const compressed=await cachedRead(process.env.GOOGLE_APPS_SCRIPT_URL,source.kind,source.from,source.to);
+  return filterResult(JSON.parse(gunzipSync(Buffer.from(compressed,"base64")).toString("utf8")) as AssistantResult,query);
 }
