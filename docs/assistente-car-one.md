@@ -105,3 +105,20 @@ Da completare prima del rilascio:
 6. Rilascio coordinato backend Apps Script + frontend. Con vecchio backend l'API assistente risponde 503 esplicito, senza ripiegare su snapshot o inventare dati. Rollback: versione 51 Apps Script e frontend precedente. I report esistenti non dipendono dall'assistente.
 
 Il commit del branch non rende l'assistente già disponibile online.
+
+
+## Voce del browser e opzioni avanzate
+
+Prima versione senza ElevenLabs, SDK, chiavi o nuove API a consumo: microfono attivato esplicitamente, dettatura it-IT non continua, testo visibile e correggibile prima dell’invio manuale alla stessa POST /api/assistant della chat. Nessun invio automatico alla fine della frase. Il CRM non registra né conserva l’audio. L’avviso prima dell’attivazione spiega che il servizio di riconoscimento del browser può elaborare audio online: non è una promessa di elaborazione locale o anonimizzazione. Non dettare dati personali.
+
+L’ascolto si chiude dopo la frase, con Stop, al cambio di scheda/uscita e dopo un massimo di 45 secondi. La bozza precedente è preservata; i risultati parziali vengono sostituiti senza duplicazioni, limite 600 caratteri. Durante l’ascolto invio e modifica del testo sono bloccati, finché il risultato finale non è arrivato. Errori di permessi, microfono, rete o browser incompatibile lasciano disponibile la chat; è possibile usare anche la dettatura della tastiera del telefono. Non si riattiva il microfono automaticamente.
+
+“Leggi risposta” usa SpeechSynthesis con periodo, titolo, testo, metriche e avvertenza di dati parziali già prodotti dal backend. Nessuna nuova generazione AI o accesso ai record per la voce. “Ferma audio”, nuova domanda, nuova chat, cambio scheda e uscita interrompono la lettura. Si preferisce una voce italiana locale quando disponibile, senza garantire elaborazione offline: le voci di sistema possono usare servizi online. La lettura è sempre manuale, senza autoplay. Il testo da leggere è la sintesi aggregata, non le righe con dati personali.
+
+Supporto rilevato a runtime per SpeechRecognition o webkitSpeechRecognition e SpeechSynthesis; disponibilità del costruttore non garantisce un servizio funzionante. Su dispositivi reali verificare Chrome desktop/Android e Safari iOS, permessi negati e revocati, rete assente, stop durante la frase, transcrizione di 2024/2025/2026, interruzione lettura e passaggio in background. Non è una conversazione vocale continua. Nessuna modifica all’autenticazione, agli indicatori o alle fonti.
+
+I controlli manuali sono ora chiamati “Opzioni avanzate”; periodo, definizioni e fonti rimangono nella risposta.
+
+Verifica automatica aggiuntiva: node scripts/test-assistant-voice.cjs, con simulazione di risultati cumulativi, callback tardive, errori senza onend, timeout di stop, limite testo, sostituzione audio e pulizia all’uscita. Non sostituisce il collaudo con microfono e altoparlanti reali.
+
+Riferimento tecnico: https://developer.mozilla.org/en-US/docs/Web/API/SpeechRecognition
