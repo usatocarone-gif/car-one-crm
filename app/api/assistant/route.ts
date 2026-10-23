@@ -1,9 +1,10 @@
+import { describeFilters } from "@/lib/assistant/filters";
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { authenticated, readAssistant } from "@/lib/assistant/server";
 import { validateQuery } from "@/lib/assistant/schema";
 import { GeminiUnavailable, geminiConfigured, interpretAssistantQuestion } from "@/lib/assistant/gemini";
-import { DEFINITIONS, summarize, presentResult } from "@/lib/assistant/summary";
+import { ANALYSIS_DEFINITIONS, DEFINITIONS, summarize, presentResult } from "@/lib/assistant/summary";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const headers = {"Cache-Control":"private, no-store, max-age=0"};
@@ -30,7 +31,7 @@ export async function POST(request: Request) {
   }
   try {
     const result=await readAssistant(query);
-    return NextResponse.json({...result,rows:result.rows.slice(0,500),recordCount:result.rows.length,engine,presentation:presentResult(result),resultId:randomUUID(),definition:DEFINITIONS[query.kind],summary:summarize(result),filters:"Tutta l’azienda; nessun filtro venditore; Europe/Rome. Date incluse."+(query.kind==="lead-contracts"?" Solo origini lead/digitali riconosciute dal CRM.":"")},{headers});
+    return NextResponse.json({...result,rows:result.rows.slice(0,500),recordCount:result.rows.length,engine,presentation:presentResult(result),resultId:randomUUID(),definition:query.analysis?ANALYSIS_DEFINITIONS[query.analysis]:(query.kind==="leads"&&query.seller?DEFINITIONS["lead-management"]:DEFINITIONS[query.kind]),summary:summarize(result),filters:describeFilters(query)},{headers});
   } catch {
     // No raw upstream errors, customer data, URLs or API secrets in client/log output.
     return NextResponse.json({status:"unavailable",error:"Fonte assistente non disponibile o versione Apps Script non compatibile. Nessun numero calcolato."},{status:503,headers});

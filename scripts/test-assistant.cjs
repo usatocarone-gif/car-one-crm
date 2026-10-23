@@ -3,7 +3,7 @@ const vm=require('node:vm');
 const assert=require('node:assert/strict');
 const crypto=require('node:crypto');
 const ts=require('typescript');
-function load(file,imports={},globals={}){const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:n=>imports[n]||require(n),Buffer,URL,Date,Intl,AbortSignal,process,TextDecoder,Response,Request,...globals});return exports;}
+function load(file,imports={},globals={}){const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:n=>imports[n]||(n==="./analytics"?load("lib/assistant/analytics.ts",{"./schema":schema,"../contract-origin":load("lib/contract-origin.ts")}):n==="./filters"||n==="@/lib/assistant/filters"?load("lib/assistant/filters.ts",{"./schema":schema,"./vehicles":load("lib/assistant/vehicles.ts")}):n==="./conversation"?load("lib/assistant/conversation.ts",{"./schema":schema}):require(n)),Buffer,URL,Date,Intl,AbortSignal,process,TextDecoder,Response,Request,...globals});return exports;}
 const schema=load('lib/assistant/schema.ts'),summary=load('lib/assistant/summary.ts',{'./vehicles':load('lib/assistant/vehicles.ts'),'../contract-origin':load('lib/contract-origin.ts')});
 const operational=load('lib/operational-quotes.ts');
 const origins=load('lib/contract-origin.ts');
@@ -14,7 +14,7 @@ assert.equal(schema.validDay('2024-02-29'),true);
 assert.equal(schema.interpretQuestion('Quanti contratti abbiamo nel 2025 divisi tra Car One e AD Motor?').from,'2025-01-01');
 assert.equal(schema.interpretQuestion('Qual è la percentuale di lead gestiti il primo giorno dal 2026-10-01 al 2026-10-20?').kind,'lead-quality');
 for(const q of ['Quanti contratti di Caironi nel 2025?','Quanti contratti nel 2025 esclusi AD Motor?','Quanti contratti abbiamo il mese scorso?','Fatturato nel 2025?','Quanti contratti abbiamo nel 2025 solo Car One?'])assert.throws(()=>schema.interpretQuestion(q));
-assert.throws(()=>schema.validateQuery({kind:'contracts',from:'2025-01-01',to:'2025-12-31',seller:'CAIRONI'}));
+assert.throws(()=>schema.validateQuery({kind:'contracts',from:'2025-01-01',to:'2025-12-31',seller:'NON_CONFIGURATO'}));
 const oldUser=process.env.DASHBOARD_USER,oldPass=process.env.DASHBOARD_PASSWORD;
 process.env.DASHBOARD_USER='test';process.env.DASHBOARD_PASSWORD='a:b';
 assert.equal(server.authenticated(new Request('http://localhost')),false);
@@ -66,7 +66,7 @@ console.log('PASS: date, filtri, autenticazione, provenienza, sorgenti mancanti,
  const auth='Basic '+Buffer.from('pilot:local-test').toString('base64');
  assert.equal((await route.POST(new Request('https://crm.example/api/assistant',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(query)}))).status,401);
  assert.equal((await route.POST(new Request('https://crm.example/api/assistant',{method:'POST',headers:{authorization:auth,origin:'https://evil.example','content-type':'application/json'},body:JSON.stringify(query)}))).status,403);
- assert.equal((await route.POST(new Request('https://crm.example/api/assistant',{method:'POST',headers:{authorization:auth,'content-type':'application/json'},body:JSON.stringify({question:'Quanti contratti di Caironi nel 2025?'})}))).status,400);
+ assert.equal((await route.POST(new Request('https://crm.example/api/assistant',{method:'POST',headers:{authorization:auth,'content-type':'application/json'},body:JSON.stringify({question:'Quanti contratti di Caironi nel 2025?'})}))).status,503);
  assert.equal((await route.POST(new Request('https://crm.example/api/assistant',{method:'POST',headers:{authorization:auth,'content-type':'application/json'},body:JSON.stringify(query)}))).status,503);
  await testGemini();
  console.log('PASS: API 401, 403, chiarimenti 400, fonte indisponibile 503');
@@ -134,7 +134,7 @@ async function testGemini(){
   assert.equal(question.today,'2026-10-23');assert.deepEqual(Object.keys(question).sort(),['question','timeZone','today']);
   assert.equal(payload.tools,undefined);assert.equal(payload.generationConfig.responseMimeType,'application/json');
   assert.ok(payload.systemInstruction.parts[0].text.includes('## Ruolo e stile'));assert.ok(!payload.systemInstruction.parts[0].text.includes('389'));
-  for(const plan of [{...ok,status:'unsupported',kind:'none',from:'',to:''},{...ok,status:'clarification',kind:'none',from:'',to:''},{...ok,from:'2024-02-31'},{...ok,seller:'Caironi'},{...ok,kind:'sql'},{...ok,from:'2023-01-01',to:'2023-12-31'}]){
+  for(const plan of [{...ok,status:'unsupported',kind:'none',from:'',to:''},{...ok,status:'clarification',kind:'none',from:'',to:''},{...ok,from:'2024-02-31'},{...ok,seller:'NON_CONFIGURATO'},{...ok,kind:'sql'},{...ok,from:'2023-01-01',to:'2023-12-31'}]){
    g=load('lib/assistant/gemini.ts',{'./schema':schema},{fetch:async()=>response(plan)});await assert.rejects(g.planWithGemini('domanda aggregata'));
   }
   g=load('lib/assistant/gemini.ts',{'./schema':schema},{fetch:async()=>new Response('private-provider-error',{status:429})});

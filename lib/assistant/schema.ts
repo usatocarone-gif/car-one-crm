@@ -1,5 +1,10 @@
 export type QueryKind = "contracts" | "lead-contracts" | "agenda-quotes" | "lead-quality" | "leads" | "quotes" | "appointments" | "funnel" | "lead-management" | "vehicle-sales";
-export type AssistantQuery = { kind: QueryKind; from: string; to: string };
+export const ANALYSIS_LABELS={"seller-ranking":"Classifica per venditore","best-month":"Mese con più vendite ufficiali","period-comparison":"Confronto tra periodi","lead-conversion":"Rapporto contratti da lead / assegnazioni","walkin-conversion":"Rapporto contratti walk-in / preventivi walk-in"};
+export const ASSISTANT_SELLERS = ["CAIRONI", "GRANDOLINI", "LIGUORI", "MONACELLI", "BORDINI", "PAGLIARA"] as const;
+export const ASSISTANT_BRANDS = ["Alfa Romeo","Land Rover","Mercedes-Benz","Volkswagen","Citroën","Abarth","Audi","BMW","Cupra","Dacia","DR","Fiat","Ford","Honda","Hyundai","Jaguar","Jeep","Kia","Lancia","Lexus","Lynk & Co","Mazda","MG","Mini","Mitsubishi","Nissan","Opel","Peugeot","Porsche","Renault","Seat","Skoda","Smart","Ssangyong","Subaru","Suzuki","Tesla","Toyota","Volvo"];
+export function normalizedWords(value:string){return value.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase().replace(/[^A-Z0-9]+/g," ").trim();}
+export function canonicalBrand(value:string){const word=normalizedWords(value);return ASSISTANT_BRANDS.find(b=>normalizedWords(b)===word)||({VW:"Volkswagen",MERCEDES:"Mercedes-Benz"} as Record<string,string>)[word];}
+export type AssistantQuery = { kind: QueryKind; from: string; to: string; seller?: string; brand?: string; model?: string; analysis?: "seller-ranking" | "best-month" | "period-comparison" | "lead-conversion" | "walkin-conversion"; compareFrom?: string; compareTo?: string };
 export type Evidence = { locatorId: string; url: string; source: string; row?: number; fingerprint?: string };
 export type SourceCoverage = {
   dataset?: "leads" | "quotes" | "appointments" | "contracts" | "management";
@@ -8,7 +13,7 @@ export type SourceCoverage = {
 };
 export type AssistantRow = {
   date: string; category: string; seller: string; value: string | number;
-  vehicle?: string; invoiceAmount?: number;
+  vehicle?: string; invoiceAmount?: number; comparisonPeriod?: boolean;
   channel?: string; arrivedAt?: string; metric?: "lead" | "quote" | "appointment" | "contract" | "management"; status?: string; feedback?: boolean;
   origin?: string; due?: number; managed?: number; measurement?: string; evidence: Evidence;
 };
@@ -26,12 +31,33 @@ export function validDay(value: unknown): value is string {
 export function validateQuery(input: unknown): AssistantQuery {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Domanda non valida");
   const q = input as Record<string, unknown>;
-  if (Object.keys(q).some(k => !["kind", "from", "to"].includes(k))) throw new Error("Parametri non consentiti");
+  if (Object.keys(q).some(k => !["kind", "from", "to", "seller", "brand", "model", "analysis", "compareFrom", "compareTo"].includes(k))) throw new Error("Parametri non consentiti");
   if (!["contracts", "lead-contracts", "agenda-quotes", "lead-quality", "leads", "quotes", "appointments", "funnel", "lead-management", "vehicle-sales"].includes(String(q.kind))) throw new Error("Indicatore non supportato");
   if (!validDay(q.from) || !validDay(q.to) || q.to < q.from) throw new Error("Usa date reali AAAA-MM-GG, dalla minore alla maggiore");
   if ((Date.parse(q.to) - Date.parse(q.from)) / 86400000 > 366) throw new Error("Seleziona al massimo 367 giorni");
   if (q.kind === "agenda-quotes" && q.from !== q.to) throw new Error("Per agenda e richiami seleziona una sola giornata");
-  return { kind: q.kind as QueryKind, from: q.from, to: q.to };
+  const query:AssistantQuery={kind:q.kind as QueryKind,from:q.from,to:q.to};
+  if(q.analysis!==undefined){
+    const allowed:Record<string,string[]>={"seller-ranking":["contracts","lead-contracts","vehicle-sales","appointments","quotes"],"best-month":["contracts","lead-contracts","vehicle-sales"],"period-comparison":["contracts","lead-contracts","vehicle-sales","leads","quotes","appointments","funnel"],"lead-conversion":["funnel"],"walkin-conversion":["funnel"]};
+    if(typeof q.analysis!=="string"||!allowed[q.analysis]?.includes(query.kind))throw new Error("Analisi non disponibile per questo indicatore");
+    query.analysis=q.analysis as AssistantQuery["analysis"];
+  }
+  if(query.analysis==="period-comparison"){
+    if(!validDay(q.compareFrom)||!validDay(q.compareTo)||q.compareTo<q.compareFrom||q.compareTo>=query.from||Date.parse(query.to)-Date.parse(query.from)!==Date.parse(q.compareTo)-Date.parse(q.compareFrom))throw new Error("Confronta intervalli precedenti, distinti e della stessa durata");
+    query.compareFrom=q.compareFrom;query.compareTo=q.compareTo;
+  }else if(q.compareFrom!==undefined||q.compareTo!==undefined)throw new Error("Date di confronto senza analisi di confronto");
+  if(q.seller!==undefined){
+    if(typeof q.seller!=="string"||!ASSISTANT_SELLERS.includes(q.seller.trim().toUpperCase() as typeof ASSISTANT_SELLERS[number]))throw new Error("Venditore non riconosciuto. Usa il cognome di uno dei sei venditori configurati.");
+    if(["funnel","agenda-quotes"].includes(query.kind))throw new Error("Questo indicatore non supporta ancora il filtro venditore. Chiedi lead assegnati, contratti, preventivi o appuntamenti separatamente.");
+    query.seller=q.seller.trim().toUpperCase();
+  }
+  if(q.brand!==undefined||q.model!==undefined){
+    if(query.kind!=="vehicle-sales")throw new Error("Marca e modello sono disponibili per i veicoli venduti; non attribuibili ai lead o agli appuntamenti.");
+    if(q.brand!==undefined){if(typeof q.brand!=="string"||!canonicalBrand(q.brand))throw new Error("Marca non riconosciuta: specifica la marca completa.");query.brand=canonicalBrand(q.brand);}
+    if(q.model!==undefined){if(typeof q.model!=="string"||!q.model.trim()||q.model.length>80||!/^[\p{L}\p{N} .&+()'’/-]+$/u.test(q.model))throw new Error("Modello non valido");query.model=normalizedWords(q.model);if(!query.model)throw new Error("Modello non valido");}
+  }
+  if(["contracts","lead-contracts","vehicle-sales"].includes(query.kind)&&(query.from<"2024-01-01"||query.to>"2026-12-31"||(query.compareFrom!==undefined&&query.compareFrom<"2024-01-01")))throw new Error("Vendite interrogabili dal 2024 al 2026.");
+  return query;
 }
 
 // Common explicit questions stay local; the server validates every plan.

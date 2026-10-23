@@ -158,3 +158,8 @@ Fasce prezzo basate su IMP. FATT.: sotto 10.000 €, 10–15 mila, 15–20 mila,
 Classificazione marca solo da prefisso esplicito con alias noti; modello raggruppato per descrizione normalizzata di maiuscole e spazi, senza inventare allestimenti o segmenti. Tabelle marche, top 20 descrizioni modello e fasce. Descrizioni non classificate esplicite. I campi KM e ANNO del prospetto corrente sono nella sezione PERMUTA: non vengono attribuiti al mezzo venduto. Segmento, alimentazione e target/obiettivo futuro di prezzo non sono registrati nelle fonti analizzate.
 
 Domande locali: “Quali auto abbiamo venduto nel 2025?”, “Marche e modelli venduti nel 2026”, “Fasce di prezzo delle auto vendute nel 2025”, “Prezzo medio delle auto vendute nel 2025”. Seguito “E le auto vendute?” conserva il periodo. Voce e chat usano la stessa presentazione server.
+
+
+## Filtri e memoria conversazionale
+
+L’estensione successiva alla PR 7 abilita venditore e, per le auto vendute, marca/modello. I filtri sono visibili in ogni risposta e vengono letti anche dalla voce. Le domande comuni non richiedono Gemini. Il fornitore riceve soltanto domanda e ultimo contesto validato; il cognome del venditore può essere presente. Per i lead di un venditore si contano le assegnazioni conservate nel suo foglio per Data, con copertura storica dichiarata parziale. Non è prova dell’ora di assegnazione o della gestione. Implementazione e collaudo in assistente-car-one-mappa-crm.md. Riusa il backend Apps Script v53 già pubblicato.
