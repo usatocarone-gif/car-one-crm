@@ -65,3 +65,16 @@ Le nuove query riusano Apps Script v53: il server richiede il dataset senza filt
 Contesto di sessione: ultimo indicatore, periodo e filtri validati; una domanda successiva modifica ciò che viene richiesto. Nuova domanda autonoma riparte senza filtri precedenti. Cambio marca elimina il precedente modello se non esplicitato; date impossibili chiedono chiarimento. Parser locale per domande comuni, Gemini per altre formulazioni: nessun codice o SQL generato. Testo cliente e risultati non inviati al modello. La domanda dell’utente e il contesto di filtri possono contenere il cognome del venditore configurato.
 
 Collaudo riproducibile: node scripts/test-assistant-filters.cjs. Domande Caironi/settembre 2026 e Alfa Romeo Stelvio/2026; seguiti anno, mese, venditore, prezzo medio, venditore delle auto; cambio argomento; filtri non consentiti; data bisestile; alias VW; 500 diverso da 500X; media sulle sole righe filtrate; fonti mancanti e attribuzioni ignote; autenticazione; 601 auto filtrate prima del limite 500. Risultati attesi dei test sono sintetici, non conteggi di produzione. Verifica live delle nuove risposte ancora da eseguire.
+
+
+### Classifiche, rapporti e confronti
+
+analysis seller-ranking: conteggi per venditore di contratti, contratti con Origine lead, auto filtrate, preventivi e appuntamenti. Non inferisce chi ha materialmente prenotato: il calendario attribuisce il venditore nel titolo. Parità mantenute; venditori sconosciuti esclusi e dichiarati. Con fonti parziali la classifica riguarda solo registrazioni lette, senza certificare un migliore assoluto.
+
+analysis best-month: sceglie il mese chiuso interamente incluso con più vendite ufficiali lette. Mesi tagliati, mese corrente e provvisori sono separati e non vincono la classifica.
+
+analysis period-comparison: due intervalli anteriori/distinti di stessa durata, letti tramite le funzioni esistenti. La domanda su questa settimana confronta lunedì–oggi con lunedì–stesso giorno della settimana precedente (Europe/Rome). Giorno corrente incompleto dichiarato. Fonte mancante: differenze/variazioni n.d.; base zero: variazione percentuale n.d. Riferimenti ai record di entrambi i periodi, distinti dalla data e dal campo comparisonPeriod.
+
+analysis lead-conversion e walkin-conversion: tabelle per venditore con numeratore e denominatore. Lead = contratti classificati dal solo Origine / assegnazioni nei fogli. Walk-in = Origine esplicita walk-in / Fonte esplicita walk-in del tab Preventivi; altri non-lead non diventano walk-in. Poiché completezza storica delle assegnazioni e dei preventivi non è certificata, nessun miglior tasso viene attribuito: solo rapporti osservati di periodo, che non misurano coorti e possono superare il 100%. Origine/Fonte/venditore mancante o fonte non disponibile: percentuali n.d. Uno zero al denominatore resta n.d. Tutte queste analisi usano Apps Script v53 e conservano letture in sola lettura.
+
+Test aggiunti: classifiche e parità, conteggi da lead a settembre 2025, rapporti ottobre 2026, esclusione passaparola da walk-in, fonte mancante, confini settimanali e corrispondenza giorni, esclusione mese corrente dal migliore e orchestrazione multi-fonte sul server. Il collaudo usa dati sintetici; conteggi reali delle classifiche ancora da riconciliare prima di considerarli certificati.

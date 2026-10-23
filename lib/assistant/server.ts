@@ -3,7 +3,7 @@ import { gzipSync, gunzipSync } from "node:zlib";
 import { timingSafeEqual } from "node:crypto";
 import { unstable_cache } from "next/cache";
 import type { AssistantQuery, AssistantResult, AssistantRow } from "./schema";
-import { validDay } from "./schema";
+import { validDay, validateQuery } from "./schema";
 import { quotePriority } from "../operational-quotes";
 import type { OperationalQuote } from "../types";
 import { isLeadContractOrigin } from "../contract-origin";
@@ -68,9 +68,25 @@ const cachedRead = unstable_cache(async (endpoint: string, kind: string, from: s
   const value = await response.json();
   return gzipSync(JSON.stringify(normalizeResult(value,{kind:kind as AssistantQuery["kind"],from,to}))).toString("base64");
 },["assistant-v2-commercial"],{revalidate:120});
-export async function readAssistant(query: AssistantQuery) {
-  if (!process.env.GOOGLE_APPS_SCRIPT_URL || !process.env.GOOGLE_APPS_SCRIPT_TOKEN) throw new Error("Fonte assistente non configurata");
+async function readDataset(query:AssistantQuery) {
   const source=sourceQuery(query);
-  const compressed=await cachedRead(process.env.GOOGLE_APPS_SCRIPT_URL,source.kind,source.from,source.to);
+  const compressed=await cachedRead(process.env.GOOGLE_APPS_SCRIPT_URL!,source.kind,source.from,source.to);
   return filterResult(JSON.parse(gunzipSync(Buffer.from(compressed,"base64")).toString("utf8")) as AssistantResult,query);
+}
+export async function readAssistant(input: AssistantQuery):Promise<AssistantResult> {
+  const query=validateQuery(input);
+  if (!process.env.GOOGLE_APPS_SCRIPT_URL || !process.env.GOOGLE_APPS_SCRIPT_TOKEN) throw new Error("Fonte assistente non configurata");
+  if(query.analysis==="lead-conversion"||query.analysis==="walkin-conversion"){
+    const [contracts,denominator]=await Promise.all([
+      readDataset({kind:"contracts",from:query.from,to:query.to}),
+      readDataset({kind:query.analysis==="lead-conversion"?"lead-management":"quotes",from:query.from,to:query.to})
+    ]);
+    return {schemaVersion:"assistant-v1",query,generatedAt:[contracts.generatedAt,denominator.generatedAt].sort()[0],sources:[...contracts.sources.map(s=>({...s,dataset:"contracts" as const})),...denominator.sources.map(s=>({...s,dataset:query.analysis==="lead-conversion"?"management" as const:"quotes" as const}))],rows:[...contracts.rows.map(r=>({...r,metric:"contract" as const})),...denominator.rows],truncated:contracts.truncated||denominator.truncated};
+  }
+  if(query.analysis==="period-comparison"){
+    const {analysis,compareFrom,compareTo,...base}=query;
+    const [current,previous]=await Promise.all([readDataset(base),readDataset({...base,from:compareFrom!,to:compareTo!})]);
+    return {...current,query,generatedAt:[current.generatedAt,previous.generatedAt].sort()[0],sources:[...current.sources.map(s=>({...s,name:"Periodo attuale · "+s.name})),...previous.sources.map(s=>({...s,name:"Periodo precedente · "+s.name}))],rows:[...current.rows,...previous.rows.map(r=>({...r,comparisonPeriod:true}))],truncated:current.truncated||previous.truncated};
+  }
+  return readDataset(query);
 }

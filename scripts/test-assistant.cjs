@@ -3,7 +3,7 @@ const vm=require('node:vm');
 const assert=require('node:assert/strict');
 const crypto=require('node:crypto');
 const ts=require('typescript');
-function load(file,imports={},globals={}){const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:n=>imports[n]||(n==="./filters"||n==="@/lib/assistant/filters"?load("lib/assistant/filters.ts",{"./schema":schema,"./vehicles":load("lib/assistant/vehicles.ts")}):n==="./conversation"?load("lib/assistant/conversation.ts",{"./schema":schema}):require(n)),Buffer,URL,Date,Intl,AbortSignal,process,TextDecoder,Response,Request,...globals});return exports;}
+function load(file,imports={},globals={}){const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:n=>imports[n]||(n==="./analytics"?load("lib/assistant/analytics.ts",{"./schema":schema,"../contract-origin":load("lib/contract-origin.ts")}):n==="./filters"||n==="@/lib/assistant/filters"?load("lib/assistant/filters.ts",{"./schema":schema,"./vehicles":load("lib/assistant/vehicles.ts")}):n==="./conversation"?load("lib/assistant/conversation.ts",{"./schema":schema}):require(n)),Buffer,URL,Date,Intl,AbortSignal,process,TextDecoder,Response,Request,...globals});return exports;}
 const schema=load('lib/assistant/schema.ts'),summary=load('lib/assistant/summary.ts',{'./vehicles':load('lib/assistant/vehicles.ts'),'../contract-origin':load('lib/contract-origin.ts')});
 const operational=load('lib/operational-quotes.ts');
 const origins=load('lib/contract-origin.ts');

@@ -1,3 +1,4 @@
+import { presentAnalysis } from "./analytics";
 import { presentVehicles } from "./vehicles";
 import { isLeadContractOrigin } from "../contract-origin";
 import type { AssistantResult } from "./schema";
@@ -7,6 +8,7 @@ export type AssistantPresentation = {tables?:AssistantBreakdown[];title:string;m
 export function presentResult(result:AssistantResult):AssistantPresentation {
   const partial=!result.sources.length||result.sources.some(s=>s.status!=="available");
   if(result.truncated)return {title:"Il periodo è troppo ampio",message:"Scegli un intervallo più breve per ottenere un totale verificabile.",metrics:[],partial:true};
+  const analysis=presentAnalysis(result);if(analysis)return analysis;
   if(!result.rows.length)return {title:partial?"Non ho dati sufficienti":"Nessun risultato",message:partial?"Una parte delle fonti manca o non è completa. Non posso considerare il risultato pari a zero.":"Non risultano record nel periodo e nei filtri selezionati.",metrics:[],partial};
   if(result.query.kind==="vehicle-sales")return presentVehicles(result,partial);
   if(["leads","quotes","appointments","funnel","lead-management"].includes(result.query.kind))return presentCommercial(result,partial);
@@ -26,6 +28,14 @@ export function presentResult(result:AssistantResult):AssistantPresentation {
   return {title,tables,message:provisional?"Lo storico e le registrazioni provvisorie del mese corrente sono mostrati separatamente.":result.query.kind==="lead-contracts"?"Classificati dal campo Origine, con la stessa regola del CRM.":"Registrazioni nel venduto ufficiale, divise tra Car One e AD Motor.",metrics,partial};
 }
 
+export const ANALYSIS_DEFINITIONS={
+  "seller-ranking":"Classifica dei conteggi nel periodo per venditore associato al record. Parità conservate; record con venditore non riconosciuto dichiarati. Con fonti parziali riguarda solo le registrazioni lette. Per gli appuntamenti si usa la data evento e il venditore nel titolo, non chi ha effettuato la prenotazione.",
+  "best-month":"Mese chiuso interamente incluso nel periodo con più registrazioni ufficiali lette. Parità mantenute; mese corrente, mesi tagliati e provvisori non partecipano al primo posto.",
+  "period-comparison":"Conteggi di due intervalli distinti di uguale durata. Questa settimana: da lunedì a oggi contro lunedì allo stesso giorno della settimana precedente, Europe/Rome; oggi incompleto. Variazioni percentuali n.d. per base zero o fonti mancanti.",
+  "lead-conversion":"Rapporto osservato di periodo: contratti con Origine lead riconosciuta / assegnazioni attualmente conservate nel foglio venditore per Data registrata. Non è conversione individuale o di coorte; lo storico delle assegnazioni non è certificato completo. Nessun miglior tasso certificato. Fonte, origine o venditore mancanti: tassi n.d.; denominatore zero: n.d.",
+  "walkin-conversion":"Rapporto osservato di periodo: contratti con Origine esplicita walk-in / preventivi con Fonte esplicita walk-in. Non-lead non equivale a walk-in. Completezza storica dei preventivi non certificata, nessun vincitore. Non è conversione di coorte o individuale; il rapporto può superare il 100%. Attribuzioni mancanti o denominatore zero: n.d."
+};
+
 export const DEFINITIONS = {
   "vehicle-sales": "Stesse registrazioni valide dei contratti, con descrizione marca-modello del venduto. Marche classificate solo da prefissi espliciti (alias VW, Mercedes, Citroën), senza inferire segmenti, alimentazione, anno o chilometraggio. Prezzo di riferimento concordato per fasce, media e mediana: importi positivi validi del campo IMP. FATT. individuato dall’intestazione. Non è il fatturato totale o un dato di incasso. Importi mancanti e record provvisori con VAL. VENDITA / PROVVIGIONE esclusi dalle analisi degli importi, ma restano nel conteggio dei veicoli. Nessun dato della permuta attribuito al venduto. Valori letti, non obiettivi di prezzo.",
   leads: "Eventi lead ricevuti per data di arrivo Europe/Rome, da Foglio1, giuseppe lead e archivi mensili configurati. Timestamp ISO rigorosi; copie dello stesso evento escluse e dichiarate, nuove richieste distinte conservate. Mesi senza copertura e date invalide non diventano zero. Non sono persone uniche. L’ID può essere assente: il link riga non è un ID permanente.",
@@ -40,6 +50,7 @@ export const DEFINITIONS = {
 };
 export function summarize(result: AssistantResult) {
   if (result.truncated) return "Risultato troppo ampio: restringi il periodo. Nessun totale certificabile.";
+  const analysis=presentAnalysis(result);if(analysis)return analysis.title+". "+analysis.message;
   const byCategory = new Map<string, number>();
   for (const row of result.rows) byCategory.set(row.category, (byCategory.get(row.category) || 0) + 1);
   const complete = result.sources.length > 0 && result.sources.every(s => s.status === "available");

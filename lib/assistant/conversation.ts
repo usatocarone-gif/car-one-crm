@@ -13,6 +13,11 @@ export function localConversation(question:string,context?:AssistantQuery,now=ne
   if(matchedSellers.length>1)throw new Error("Indica un venditore alla volta; il confronto fra venditori non è ancora disponibile.");
   if(matchedSellers.length){base.seller=matchedSellers[0];text=text.replace(new RegExp(`(?:\\b(?:di|da|a|per) )?\\b${matchedSellers[0].toLowerCase()}\\b`),"").trim();}
   if(/\b(?:tutti i venditori|tutta l[’']azienda|senza filtro venditore)\b/.test(text)){delete base.seller;text=text.replace(/\b(?:tutti i venditori|tutta l[’']azienda|senza filtro venditore)\b/,"").trim();}
+  if(/^(?:come sta andando|come stiamo andando|andamento di) questa settimana (?:a confronto con|confronto a|rispetto a|rispetto alla|contro) (?:quella scorsa|la settimana scorsa|settimana scorsa)$/.test(text)){
+    const date=new Date(today+"T12:00:00Z"),offset=(date.getUTCDay()+6)%7;
+    const shift=(n:number)=>new Date(date.getTime()+n*86400000).toISOString().slice(0,10);
+    return validateQuery({kind:"funnel",from:shift(-offset),to:today,analysis:"period-comparison",compareFrom:shift(-offset-7),compareTo:shift(-7)});
+  }
   const range=text.match(/\bdal (\d{4}-\d{2}-\d{2}) al (\d{4}-\d{2}-\d{2})\b/);
   const month=text.match(new RegExp(`\\b(?:a |ad |nel |di |per )?(${months.join("|")})(?: (20\\d{2}))?\\b`));
   const year=text.match(/\b(?:nel|il|per il) (20\d{2})\b/);
@@ -31,7 +36,13 @@ export function localConversation(question:string,context?:AssistantQuery,now=ne
     base.from=String(Number(previous!.from.slice(0,4))-1)+previous!.from.slice(4);base.to=String(Number(previous!.to.slice(0,4))-1)+previous!.to.slice(4);text="";
   }
   text=text.replace(/\s+/g," ").trim();
-  if(/^(?:quanti |mostrami (?:i )?)lead(?: (?:ha|abbiamo))?(?: ricevuto| ricevuti| assegnati| sono arrivati| arrivati)?$/.test(text))base.kind="leads";
+  const analytical=normalizedWords(text).toLowerCase();
+  if(/^chi ha venduto piu auto(?: da lead)?$/.test(analytical)){base.kind=/da lead$/.test(analytical)?"lead-contracts":"contracts";base.analysis="seller-ranking";}
+  else if(/^chi (?:prende|ha preso|ha fissato) piu appuntamenti$/.test(analytical)){base.kind="appointments";base.analysis="seller-ranking";}
+  else if(/^(?:qual e|qual è|quale e) il (?:miglior mese|mese migliore)(?: per (?:nr|numero|numero di) vendite)?$/.test(analytical)){base.kind="contracts";base.analysis="best-month";}
+  else if(/^chi ha (?:il )?miglior tasso di conversione lead (?:contratto|contratti) lead$/.test(analytical)){base.kind="funnel";base.analysis="lead-conversion";}
+  else if(/^chi ha (?:il )?miglior tasso di conversione (?:sui walkin quindi )?preventivi walkin (?:contratti|contratto)$/.test(analytical)){base.kind="funnel";base.analysis="walkin-conversion";}
+  else if(/^(?:quanti |mostrami (?:i )?)lead(?: (?:ha|abbiamo))?(?: ricevuto| ricevuti| assegnati| sono arrivati| arrivati)?$/.test(text))base.kind="leads";
   else if(/^(?:quanti |mostrami (?:i )?)contratti(?: (?:ha|abbiamo))?(?: fatto| registrati)?(?: da lead)?$/.test(text))base.kind=/da lead$/.test(text)?"lead-contracts":"contracts";
   else if(/^(?:quanti |mostrami (?:i )?)preventivi(?: (?:ha|abbiamo))?(?: fatto| registrati)?$/.test(text))base.kind="quotes";
   else if(/^(?:quanti |mostrami (?:gli )?)appuntamenti(?: (?:ha|abbiamo))?(?: e (?:gli )?esiti)?$/.test(text))base.kind="appointments";
@@ -39,7 +50,8 @@ export function localConversation(question:string,context?:AssistantQuery,now=ne
   else if(follow&&/^(?:a che prezzo medio|a che prezzo mediano|il prezzo medio|il prezzo mediano|chi le ha vendute|per venditore|per marca|per modello|fasce di prezzo)$/.test(text)){
     if(!["vehicle-sales","contracts","lead-contracts"].includes(previous!.kind))throw new Error("Il prezzo è disponibile per le auto vendute. Quali veicoli e quale periodo vuoi analizzare?");
     if(previous!.kind==="lead-contracts")throw new Error("Per analizzare gli importi dei soli contratti da lead serve un filtro Origine aggiuntivo, non ancora disponibile.");
-    base.kind="vehicle-sales";
+    base.kind="vehicle-sales";delete base.analysis;delete base.compareFrom;delete base.compareTo;
+    if(text==="chi le ha vendute"||text==="per venditore")base.analysis="seller-ranking";
   }else if(follow&&!text){/* Only an explicit period/seller changed. */}
   else {
     const sale=text.match(/^(?:quante|quanti|quali) (.+?) (?:(?:abbiamo|ha) )?vendut[eoia]$/);
@@ -49,6 +61,7 @@ export function localConversation(question:string,context?:AssistantQuery,now=ne
     if(!brand||(!sale&&!follow))return undefined;
     base.kind="vehicle-sales";base.brand=brand;delete base.model;if(model)base.model=normalizedWords(model);
   }
+  if(base.analysis&&(!base.from||!base.to))throw new Error("Per quale periodo? Specifica mese e anno, oppure un anno completo.");
   if(!base.kind||!base.from||!base.to)return undefined;
   return validateQuery(base);
 }

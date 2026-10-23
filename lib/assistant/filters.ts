@@ -1,4 +1,4 @@
-import { ASSISTANT_SELLERS, normalizedWords, validateQuery, type AssistantQuery, type AssistantResult } from "./schema";
+import { ANALYSIS_LABELS, ASSISTANT_SELLERS, normalizedWords, validateQuery, type AssistantQuery, type AssistantResult } from "./schema";
 import { vehicleBrand } from "./vehicles";
 
 export function sourceQuery(input:AssistantQuery):AssistantQuery {
@@ -30,5 +30,5 @@ export function filterResult(result:AssistantResult,input:AssistantQuery):Assist
   return {...result,query,sources,rows};
 }
 export function describeFilters(q:AssistantQuery){
-  return [q.seller?`Venditore: ${q.seller}`:"Tutti i venditori",q.brand?`Marca: ${q.brand}`:"",q.model?`Modello: ${q.model} (parole esatte nella descrizione registrata)`:"","Car One e AD Motor; Europe/Rome; date incluse.",q.kind==="lead-contracts"?"Solo origini lead/digitali riconosciute.":""].filter(Boolean).join(" · ");
+  return [q.seller?`Venditore: ${q.seller}`:"Tutti i venditori",q.brand?`Marca: ${q.brand}`:"",q.model?`Modello: ${q.model} (parole esatte nella descrizione registrata)`:"","Car One e AD Motor; Europe/Rome; date incluse.",q.analysis?ANALYSIS_LABELS[q.analysis]:"",q.compareFrom?`Confronto: ${q.compareFrom} – ${q.compareTo}`:"",q.kind==="lead-contracts"?"Solo origini lead/digitali riconosciute.":""].filter(Boolean).join(" · ");
 }
