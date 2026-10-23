@@ -5,6 +5,16 @@ const months=["gennaio","febbraio","marzo","aprile","maggio","giugno","luglio","
 export function localConversation(question:string,context?:AssistantQuery,now=new Date()):AssistantQuery|undefined {
   const previous=context?validateQuery(context):undefined;
   let text=question.toLowerCase().trim().replace(/[?!\.]+$/g,"").replace(/\s+/g," ");
+  // Normalize only explicit time phrases; never remove unknown filters or predicates.
+  text=text.replace(/\b(?:nel|durante il|per il) mese di /g,"a ")
+    .replace(new RegExp(`\\b(${months.join("|")}) (?:del|dell[’']) ?(20\\d{2})\\b`,"g"),"$1 $2");
+  const namedMonths=text.match(new RegExp(`\\b(?:${months.join("|")})\\b`,"g"))||[];
+  const namedYears=text.match(/\b20\d{2}\b/g)||[];
+  if(!/\bdal \d{4}-\d{2}-\d{2} al \d{4}-\d{2}-\d{2}\b/.test(text)&&(namedMonths.length>1||namedYears.length>1)){
+    // Leave explicit comparisons and natural-language ranges to the validated planner.
+    if(/\b(?:confront\w*|rispetto|contro|tra|fra|da|dal)\b/.test(text))return undefined;
+    throw new Error("Indica un solo periodo per questa domanda. Per un confronto specifica due intervalli precedenti, distinti e della stessa durata.");
+  }
   const follow=!!previous&&/^(?:e\b|invece\b|a che prezzo|chi le ha vendute)/.test(text);
   const base:Partial<AssistantQuery>=follow?{...previous}:{};
   text=text.replace(/^(?:e |invece )/,"");
@@ -43,9 +53,9 @@ export function localConversation(question:string,context?:AssistantQuery,now=ne
   else if(/^chi ha (?:il )?miglior tasso di conversione lead (?:contratto|contratti) lead$/.test(analytical)){base.kind="funnel";base.analysis="lead-conversion";}
   else if(/^chi ha (?:il )?miglior tasso di conversione (?:sui walkin quindi )?preventivi walkin (?:contratti|contratto)$/.test(analytical)){base.kind="funnel";base.analysis="walkin-conversion";}
   else if(/^(?:quanti |mostrami (?:i )?)lead(?: (?:ha|abbiamo))?(?: ricevuto| ricevuti| assegnati| sono arrivati| arrivati)?$/.test(text))base.kind="leads";
-  else if(/^(?:quanti |mostrami (?:i )?)contratti(?: (?:ha|abbiamo))?(?: fatto| registrati)?(?: da lead)?$/.test(text))base.kind=/da lead$/.test(text)?"lead-contracts":"contracts";
-  else if(/^(?:quanti |mostrami (?:i )?)preventivi(?: (?:ha|abbiamo))?(?: fatto| registrati)?$/.test(text))base.kind="quotes";
-  else if(/^(?:quanti |mostrami (?:gli )?)appuntamenti(?: (?:ha|abbiamo))?(?: e (?:gli )?esiti)?$/.test(text))base.kind="appointments";
+  else if(/^(?:quanti |mostrami (?:i )?)contratti(?: da lead)?(?: (?:ha|abbiamo))?(?: fatto| concluso| firmato| registrato| registrati)?(?: da lead)?$/.test(text)){base.kind=/\bda lead\b/.test(text)?"lead-contracts":"contracts";delete base.analysis;delete base.compareFrom;delete base.compareTo;}
+  else if(/^(?:quanti |mostrami (?:i )?)preventivi(?: (?:ha|abbiamo))?(?: fatto| preparato| registrato| registrati)?$/.test(text)){base.kind="quotes";delete base.analysis;delete base.compareFrom;delete base.compareTo;}
+  else if(/^(?:quanti |mostrami (?:gli )?)appuntamenti(?: (?:ha|abbiamo))?(?: preso| fissato| registrato)?(?: e (?:gli )?esiti)?$/.test(text)){base.kind="appointments";delete base.analysis;delete base.compareFrom;delete base.compareTo;}
   else if(/^(?:quali auto abbiamo venduto|quante auto (?:abbiamo|ha) venduto|auto vendute)$/.test(text))base.kind="vehicle-sales";
   else if(follow&&/^(?:a che prezzo medio|a che prezzo mediano|il prezzo medio|il prezzo mediano|chi le ha vendute|per venditore|per marca|per modello|fasce di prezzo)$/.test(text)){
     if(!["vehicle-sales","contracts","lead-contracts"].includes(previous!.kind))throw new Error("Il prezzo è disponibile per le auto vendute. Quali veicoli e quale periodo vuoi analizzare?");
@@ -61,7 +71,7 @@ export function localConversation(question:string,context?:AssistantQuery,now=ne
     if(!brand||(!sale&&!follow))return undefined;
     base.kind="vehicle-sales";base.brand=brand;delete base.model;if(model)base.model=normalizedWords(model);
   }
-  if(base.analysis&&(!base.from||!base.to))throw new Error("Per quale periodo? Specifica mese e anno, oppure un anno completo.");
+  if(base.kind&&(!base.from||!base.to))throw new Error("Per quale periodo? Specifica mese e anno, oppure un anno completo.");
   if(!base.kind||!base.from||!base.to)return undefined;
   return validateQuery(base);
 }

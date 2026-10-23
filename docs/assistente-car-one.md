@@ -162,6 +162,10 @@ Domande locali: “Quali auto abbiamo venduto nel 2025?”, “Marche e modelli 
 
 ## Filtri e memoria conversazionale
 
+Composizione locale: indicatore + venditore + periodo possono comparire in ordini diversi. Esempi equivalenti: “Quanti contratti ha fatto Caironi a dicembre 2025?”, “Caironi quanti contratti ha firmato nel mese di dicembre del 2025?” e “A dicembre 2025 quanti contratti ha concluso Caironi?”. Sono piani contracts, CAIRONI, 2025-12-01–2025-12-31, senza chiamate al modello. Supportati anche contratti da lead, preventivi fatti/preparati/registrati e appuntamenti presi/fissati/registrati. Questo non aggiunge la disponibilità storica delle fonti operative.
+
+“E a novembre?”, “E Pagliara?” e “E nel 2024?” modificano soltanto il parametro richiesto; una nuova domanda autonoma non eredita il vecchio venditore. Un conteggio esplicito successivo elimina una precedente analisi di classifica/confronto. Mese senza anno e indicatore senza periodo chiedono chiarimenti; più mesi/anni non vengono ridotti al primo. Filtri sconosciuti, venditori non configurati e più indicatori nella stessa frase non vengono assorbiti dalla grammatica locale: restano al pianificatore validato. Non sono ancora risposte multiple indipendenti nello stesso turno. Collaudo con dati sintetici nell’API: filtro venditore applicato prima del campione di 500 riferimenti, periodo e parametri mantenuti, nessun numero reale certificato dal solo test.
+
 L’estensione successiva alla PR 7 abilita venditore e, per le auto vendute, marca/modello. I filtri sono visibili in ogni risposta e vengono letti anche dalla voce. Le domande comuni non richiedono Gemini. Il fornitore riceve soltanto domanda e ultimo contesto validato; il cognome del venditore può essere presente. Per i lead di un venditore si contano le assegnazioni conservate nel suo foglio per Data, con copertura storica dichiarata parziale. Non è prova dell’ora di assegnazione o della gestione. Implementazione e collaudo in assistente-car-one-mappa-crm.md. Riusa il backend Apps Script v53 già pubblicato.
 
 
