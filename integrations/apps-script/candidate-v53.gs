@@ -1809,11 +1809,11 @@ function assistantIssue_(source, message) {
 }
 function assistantRead_(parameter) {
   const q = {kind:parameter.kind,from:parameter.from,to:parameter.to};
-  if (['contracts','lead-contracts','agenda-quotes','lead-quality','leads','quotes','appointments','funnel','lead-management'].indexOf(q.kind) < 0 || assistantDay_(q.from) !== q.from || assistantDay_(q.to) !== q.to || q.from > q.to) throw new Error('Parametri assistente non validi');
+  if (['contracts','lead-contracts','agenda-quotes','lead-quality','leads','quotes','appointments','funnel','lead-management','vehicle-sales'].indexOf(q.kind) < 0 || assistantDay_(q.from) !== q.from || assistantDay_(q.to) !== q.to || q.from > q.to) throw new Error('Parametri assistente non validi');
   if ((Date.parse(q.to) - Date.parse(q.from)) / 86400000 > 366 || (q.kind === 'agenda-quotes' && q.from !== q.to)) throw new Error('Periodo assistente non valido');
   const now = new Date(), readAt = now.toISOString();
   const result = {schemaVersion:'assistant-v1',query:q,generatedAt:readAt,sources:[],rows:[],truncated:false};
-  if (q.kind === 'contracts' || q.kind === 'lead-contracts') assistantContracts_(result,now);
+  if (q.kind === 'contracts' || q.kind === 'lead-contracts' || q.kind === 'vehicle-sales') assistantContracts_(result,now);
   if (q.kind === 'agenda-quotes') assistantAgendaQuotes_(result,now);
   if (q.kind === 'lead-quality') assistantLeadQuality_(result);
   function read(dataset,reader){const count=result.sources.length;reader();result.sources.slice(count).forEach(function(source){source.dataset=dataset;});}
@@ -1858,6 +1858,15 @@ function assistantContracts_(result,now) {
       source.name = sheet.getName();
       if (sheet.getLastRow()<2) return;
       const rows=sheet.getRange(2,2,sheet.getLastRow()-1,spec.projection?10:13).getValues();
+      let invoiceIndex=-1;
+      if(q.kind==='vehicle-sales'){
+        if(spec.projection)assistantIssue_(source,'Importi provvisori esclusi: VAL. VENDITA / PROVVIGIONE non identifica un prezzo o importo fattura univoco.');
+        else {
+          const headers=sheet.getRange(1,1,1,Math.min(sheet.getLastColumn(),49)).getDisplayValues()[0];
+          invoiceIndex=headers.findIndex(function(v){return String(v||'').toUpperCase().replace(/[^A-Z]/g,'')==='IMPFATT';})-1;
+          if(invoiceIndex<0||invoiceIndex>=13)assistantIssue_(source,'Colonna IMP. FATT. non individuata: importi non disponibili.');
+        }
+      }
       rows.forEach(function(row,index) {
         if (!row.some(function(v){return v!=='';})) return;
         // Ignore wholly empty/template rows; populated business rows must be auditable.
@@ -1879,7 +1888,17 @@ function assistantContracts_(result,now) {
         const origin=(!spec.projection && spec.year==='2024' && spec.company==='Car One') ? '' : String(row[spec.projection?6:5]||'').trim();
         const vehicleIdentity=String(row[2]||'').trim().toUpperCase()+'|'+String(row[3]||'').trim().toUpperCase();
         const key=saleKey_(new Date(day+'T12:00:00Z'),row[1],vehicleIdentity,seller,company);
-        candidates.push({key:key,source:source,date:day,category:(spec.projection?'Registrazioni provvisorie · ':'Contratti registrati · ')+company,seller:seller,value:1,origin:origin,evidence:ref});
+        let vehicleFields={};
+        if(q.kind==='vehicle-sales'){
+          vehicleFields.vehicle=String(row[2]||'').trim().slice(0,300);
+          if(!vehicleFields.vehicle)assistantIssue_(source,'Modello assente: riga '+(index+2));
+          if(!spec.projection&&invoiceIndex>=0&&invoiceIndex<13){
+            const amount=assistantInvoiceAmount_(row[invoiceIndex]);
+            if(amount===null)assistantIssue_(source,'Importo fattura assente o non valido: riga '+(index+2));
+            else vehicleFields.invoiceAmount=amount;
+          }
+        }
+        candidates.push(Object.assign(vehicleFields,{key:key,source:source,date:day,category:(spec.projection?'Registrazioni provvisorie · ':'Contratti registrati · ')+company,seller:seller,value:1,origin:origin,evidence:ref}));
       });
     } catch (_) { source.status='unavailable'; source.issues.push('Lettura non completata'); }
   });
@@ -2118,4 +2137,14 @@ function assistantManagement_(result,now) {
       result.rows=result.rows.concat(items);
     }catch(_){source.status='unavailable';source.issues.push('Foglio venditore non accessibile o schema non valido');}
   });
+}
+
+function assistantInvoiceAmount_(value){
+  if(typeof value==='number')return isFinite(value)&&value>0&&value<=10000000?value:null;
+  const text=String(value==null?'':value).trim().replace(/^€\s*|\s*€$/g,'').trim();
+  let amount;
+  if(/^(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?$/.test(text))amount=Number(text.replace(/\./g,'').replace(',','.'));
+  else if(/^\d+\.\d{1,2}$/.test(text))amount=Number(text);
+  else return null;
+  return isFinite(amount)&&amount>0&&amount<=10000000?amount:null;
 }

@@ -4,7 +4,7 @@ const assert=require('node:assert/strict');
 const crypto=require('node:crypto');
 const ts=require('typescript');
 function load(file,imports={},globals={}){const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:n=>imports[n]||require(n),Buffer,URL,Date,Intl,AbortSignal,process,TextDecoder,Response,Request,...globals});return exports;}
-const schema=load('lib/assistant/schema.ts'),summary=load('lib/assistant/summary.ts',{'../contract-origin':load('lib/contract-origin.ts')});
+const schema=load('lib/assistant/schema.ts'),summary=load('lib/assistant/summary.ts',{'./vehicles':load('lib/assistant/vehicles.ts'),'../contract-origin':load('lib/contract-origin.ts')});
 const operational=load('lib/operational-quotes.ts');
 const origins=load('lib/contract-origin.ts');
 const gemini=load('lib/assistant/gemini.ts',{'./schema':schema});

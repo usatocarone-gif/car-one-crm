@@ -1,4 +1,4 @@
-export type QueryKind = "contracts" | "lead-contracts" | "agenda-quotes" | "lead-quality" | "leads" | "quotes" | "appointments" | "funnel" | "lead-management";
+export type QueryKind = "contracts" | "lead-contracts" | "agenda-quotes" | "lead-quality" | "leads" | "quotes" | "appointments" | "funnel" | "lead-management" | "vehicle-sales";
 export type AssistantQuery = { kind: QueryKind; from: string; to: string };
 export type Evidence = { locatorId: string; url: string; source: string; row?: number; fingerprint?: string };
 export type SourceCoverage = {
@@ -8,6 +8,7 @@ export type SourceCoverage = {
 };
 export type AssistantRow = {
   date: string; category: string; seller: string; value: string | number;
+  vehicle?: string; invoiceAmount?: number;
   channel?: string; arrivedAt?: string; metric?: "lead" | "quote" | "appointment" | "contract" | "management"; status?: string; feedback?: boolean;
   origin?: string; due?: number; managed?: number; measurement?: string; evidence: Evidence;
 };
@@ -26,7 +27,7 @@ export function validateQuery(input: unknown): AssistantQuery {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Domanda non valida");
   const q = input as Record<string, unknown>;
   if (Object.keys(q).some(k => !["kind", "from", "to"].includes(k))) throw new Error("Parametri non consentiti");
-  if (!["contracts", "lead-contracts", "agenda-quotes", "lead-quality", "leads", "quotes", "appointments", "funnel", "lead-management"].includes(String(q.kind))) throw new Error("Indicatore non supportato");
+  if (!["contracts", "lead-contracts", "agenda-quotes", "lead-quality", "leads", "quotes", "appointments", "funnel", "lead-management", "vehicle-sales"].includes(String(q.kind))) throw new Error("Indicatore non supportato");
   if (!validDay(q.from) || !validDay(q.to) || q.to < q.from) throw new Error("Usa date reali AAAA-MM-GG, dalla minore alla maggiore");
   if ((Date.parse(q.to) - Date.parse(q.from)) / 86400000 > 366) throw new Error("Seleziona al massimo 367 giorni");
   if (q.kind === "agenda-quotes" && q.from !== q.to) throw new Error("Per agenda e richiami seleziona una sola giornata");
@@ -50,6 +51,7 @@ export function interpretQuestion(text: string, now=new Date()): AssistantQuery 
   else {
     const time = `(?:nel 20\\d{2}|dal ${iso} al ${iso}|il ${iso})`;
     const patterns: [QueryKind,RegExp][] = [
+      ["vehicle-sales",new RegExp(`^(?:quali auto abbiamo venduto|(?:mostrami )?(?:le )?auto vendute|marche e modelli venduti|fasce di importo fattura delle auto vendute|fasce di prezzo delle auto vendute|prezzo medio delle auto vendute|prezzo mediano delle auto vendute) ${time}$`)],
       ["leads",new RegExp(`^(?:quanti lead(?: abbiamo)?(?: ricevuto| sono arrivati)?|(?:mostrami )?(?:i )?lead(?: ricevuti| arrivati)?) ${time}(?: (?:divisi per canale|giorno per giorno|mese per mese))?$`)],
       ["quotes",new RegExp(`^(?:quanti preventivi(?: abbiamo| registrati)?|(?:mostrami )?(?:i )?preventivi) ${time}$`)],
       ["appointments",new RegExp(`^(?:quanti appuntamenti(?: abbiamo)?|(?:mostrami )?(?:gli )?appuntamenti(?: e (?:gli )?esiti)?) ${time}$`)],

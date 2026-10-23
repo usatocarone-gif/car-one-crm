@@ -1,3 +1,4 @@
+import { presentVehicles } from "./vehicles";
 import { isLeadContractOrigin } from "../contract-origin";
 import type { AssistantResult } from "./schema";
 
@@ -7,6 +8,7 @@ export function presentResult(result:AssistantResult):AssistantPresentation {
   const partial=!result.sources.length||result.sources.some(s=>s.status!=="available");
   if(result.truncated)return {title:"Il periodo è troppo ampio",message:"Scegli un intervallo più breve per ottenere un totale verificabile.",metrics:[],partial:true};
   if(!result.rows.length)return {title:partial?"Non ho dati sufficienti":"Nessun risultato",message:partial?"Una parte delle fonti manca o non è completa. Non posso considerare il risultato pari a zero.":"Non risultano record nel periodo e nei filtri selezionati.",metrics:[],partial};
+  if(result.query.kind==="vehicle-sales")return presentVehicles(result,partial);
   if(["leads","quotes","appointments","funnel","lead-management"].includes(result.query.kind))return presentCommercial(result,partial);
   if(result.query.kind==="lead-quality"){
     const observed=result.rows.filter(r=>r.measurement==="evening-observation");
@@ -25,6 +27,7 @@ export function presentResult(result:AssistantResult):AssistantPresentation {
 }
 
 export const DEFINITIONS = {
+  "vehicle-sales": "Stesse registrazioni valide dei contratti, con descrizione marca-modello del venduto. Marche classificate solo da prefissi espliciti (alias VW, Mercedes, Citroën), senza inferire segmenti, alimentazione, anno o chilometraggio. Prezzo di riferimento concordato per fasce, media e mediana: importi positivi validi del campo IMP. FATT. individuato dall’intestazione. Non è il fatturato totale o un dato di incasso. Importi mancanti e record provvisori con VAL. VENDITA / PROVVIGIONE esclusi dalle analisi degli importi, ma restano nel conteggio dei veicoli. Nessun dato della permuta attribuito al venduto. Valori letti, non obiettivi di prezzo.",
   leads: "Eventi lead ricevuti per data di arrivo Europe/Rome, da Foglio1, giuseppe lead e archivi mensili configurati. Timestamp ISO rigorosi; copie dello stesso evento escluse e dichiarate, nuove richieste distinte conservate. Mesi senza copertura e date invalide non diventano zero. Non sono persone uniche. L’ID può essere assente: il link riga non è un ID permanente.",
   quotes: "Righe valide datate del tab Preventivi, tutti i canali. Duplicati esatti esclusi. La presenza del foglio non certifica che contenga tutti i preventivi storici. Nessuna ricostruzione da un contratto o abbinamento nominativo. Non è lo stato dei richiami.",
   appointments: "Eventi APP dei due calendari nella data dell’appuntamento, deduplicati per ID e inizio. SI = presentato, NO = no-show; altri esiti restano da aggiornare. Show rate = SI / (SI + NO), senza i pendenti. I futuri sono programmati, non presenze effettive.",
@@ -41,6 +44,7 @@ export function summarize(result: AssistantResult) {
   for (const row of result.rows) byCategory.set(row.category, (byCategory.get(row.category) || 0) + 1);
   const complete = result.sources.length > 0 && result.sources.every(s => s.status === "available");
   const prefix = complete ? "" : "Dati parziali o non disponibili: i valori riguardano soltanto i record validi letti. ";
+  if(result.query.kind==="vehicle-sales"){const view=presentVehicles(result,!complete);return prefix+view.title+". "+view.message;}
   if (["leads","quotes","appointments","funnel","lead-management"].includes(result.query.kind)) {
     const view=presentCommercial(result,!complete);return prefix+view.title+". "+view.message+" "+view.metrics.map(m=>m.label+": "+m.value).join("; ");
   }

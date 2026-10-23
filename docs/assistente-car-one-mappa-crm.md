@@ -48,3 +48,9 @@ I riscontri numerici non sono inseriti nelle istruzioni del modello. Nessun dato
 4. Target/forecast con regola aziendale documentata; economia e noleggio solo dopo mappatura delle fonti effettive.
 
 Non è addestramento sui clienti: è ampliamento del catalogo delle funzioni e delle definizioni che l’interprete può richiedere.
+
+## Estensione veicoli venduti, richiesta durante l’audit
+
+Aggiunta query vehicle-sales. Utente ha confermato IMP. FATT. come prezzo di riferimento. Campi effettivamente verificati nelle intestazioni dei cinque fogli ufficiali e del prospetto corrente: marca-modello, targa (non esposta al modello), data, venditore, Origine dove presente, IMP. FATT. con posizioni diverse fra società/anni. Nel corrente il campo è VAL. VENDITA / PROVVIGIONE e resta escluso dai prezzi.
+
+Analisi disponibili: marche, descrizioni modello, fasce IMP. FATT., prezzo medio e mediano sui record valorizzati; ufficiali e provvisori distinti. Non sono disponibili segmento SUV/utilitaria, alimentazione, anno o km del veicolo venduto. I campi anno e km visibili nel prospetto riguardano la permuta. Non inferirli automaticamente dal nome del modello e non promettere analisi di marginalità o obiettivi futuri di prezzo.

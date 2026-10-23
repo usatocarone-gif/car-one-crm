@@ -28,8 +28,10 @@ export function normalizeResult(value: unknown, query: AssistantQuery): Assistan
   });
   const rows:AssistantRow[] = raw.rows.map(r => {
     if (!r || !validDay(r.date) || r.date < query.from || r.date > query.to || typeof r.seller !== "string" || typeof r.category !== "string" || !["number", "string"].includes(typeof r.value) || (typeof r.value === "number" && !Number.isFinite(r.value)) || !r.evidence || typeof r.evidence.locatorId !== "string" || typeof r.evidence.source !== "string" || !safeLink(r.evidence.url)) throw new Error("Record fonte non valido");
-    if (["contracts", "lead-contracts"].includes(query.kind) && (r.value !== 1 || !/^(Contratti registrati|Registrazioni provvisorie) · (Car One|AD Motor)$/.test(r.category) || typeof r.origin !== "string")) throw new Error("Contratto non valido");
+    if (["contracts", "lead-contracts", "vehicle-sales"].includes(query.kind) && (r.value !== 1 || !/^(Contratti registrati|Registrazioni provvisorie) · (Car One|AD Motor)$/.test(r.category) || typeof r.origin !== "string")) throw new Error("Contratto non valido");
     if (query.kind === "lead-contracts" && !isLeadContractOrigin(r.origin || "")) throw new Error("Origine contratto non consentita");
+    if(query.kind==="vehicle-sales"&&(typeof r.vehicle!=="string"||r.vehicle.length>300||(r.invoiceAmount!==undefined&&(!Number.isFinite(r.invoiceAmount)||r.invoiceAmount<=0||r.invoiceAmount>10_000_000))))throw new Error("Veicolo o importo fattura non valido");
+    if(query.kind==="vehicle-sales"&&r.category.startsWith("Registrazioni provvisorie")&&r.invoiceAmount!==undefined)throw new Error("Valore provvisorio non utilizzabile come importo fattura");
     const metrics=["lead","quote","appointment","contract","management"];
     const newKinds=["leads","quotes","appointments","funnel","lead-management"];
     if (newKinds.includes(query.kind)) {
@@ -41,7 +43,7 @@ export function normalizeResult(value: unknown, query: AssistantQuery): Assistan
       if(r.metric==="lead"&&(typeof r.channel!=="string"||(r.arrivedAt!=null&&(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(r.arrivedAt)||!Number.isFinite(Date.parse(r.arrivedAt))||new Date(r.arrivedAt).toISOString()!==r.arrivedAt||new Intl.DateTimeFormat("sv-SE",{timeZone:"Europe/Rome"}).format(new Date(r.arrivedAt))!==r.date))))throw new Error("Arrivo lead non valido");
     }
     if (query.kind === "lead-quality" && (!Number.isSafeInteger(r.due) || !Number.isSafeInteger(r.managed) || r.due! < 0 || r.managed! < 0 || r.managed! > r.due! || !["evening-observation", "reconstructed"].includes(r.measurement || ""))) throw new Error("Misurazione non valida");
-    return {channel:r.channel,arrivedAt:r.arrivedAt,metric:r.metric,status:r.status,feedback:r.feedback,date:r.date,category:r.category,seller:r.seller,value:r.value,origin:r.origin,due:r.due,managed:r.managed,measurement:r.measurement,evidence:{locatorId:r.evidence.locatorId,url:r.evidence.url,source:r.evidence.source,row:r.evidence.row,fingerprint:r.evidence.fingerprint}};
+    return {vehicle:r.vehicle,invoiceAmount:r.invoiceAmount,channel:r.channel,arrivedAt:r.arrivedAt,metric:r.metric,status:r.status,feedback:r.feedback,date:r.date,category:r.category,seller:r.seller,value:r.value,origin:r.origin,due:r.due,managed:r.managed,measurement:r.measurement,evidence:{locatorId:r.evidence.locatorId,url:r.evidence.url,source:r.evidence.source,row:r.evidence.row,fingerprint:r.evidence.fingerprint}};
   });
   if (query.kind === "agenda-quotes" && raw.operationalQuotes) {
     if (!Array.isArray(raw.operationalQuotes) || raw.operationalQuotes.length > 10000) throw new Error("Preventivi non validi");

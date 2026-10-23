@@ -1,6 +1,6 @@
 const {readFileSync}=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),crypto=require('node:crypto'),ts=require('typescript');
 function load(file,imports={},globals={}){const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:n=>imports[n]||require(n),Buffer,URL,Date,Intl,AbortSignal,process,TextDecoder,Response,Request,...globals});return exports;}
-const origins=load('lib/contract-origin.ts'),schema=load('lib/assistant/schema.ts'),summary=load('lib/assistant/summary.ts',{'../contract-origin':origins});
+const origins=load('lib/contract-origin.ts'),schema=load('lib/assistant/schema.ts'),summary=load('lib/assistant/summary.ts',{'./vehicles':load('lib/assistant/vehicles.ts'),'../contract-origin':origins});
 const server=load('lib/assistant/server.ts',{'next/cache':{unstable_cache:f=>f},'../contract-origin':origins,'./schema':schema,'../operational-quotes':{}});
 const now=new Date('2026-10-23T12:00:00Z');
 for(const [question,kind] of [['Quanti lead abbiamo ricevuto questo mese?','leads'],['Quanti lead sono arrivati nel 2025 divisi per canale?','leads'],['Quanti preventivi abbiamo nel 2026?','quotes'],['Mostrami gli appuntamenti e gli esiti dal 2026-10-01 al 2026-10-23','appointments'],['Mostrami il funnel questo mese','funnel'],['Quanti lead hanno un feedback nel 2026?','lead-management']])assert.equal(schema.interpretQuestion(question,now).kind,kind,question);
@@ -58,3 +58,22 @@ console.log('PASS: lead arrivals, Rome boundaries, monthly coverage, exact-event
  assert.equal(response.status,200);const body=await response.json();assert.equal(body.rows.length,500);assert.equal(body.recordCount,601);assert.match(body.presentation.title,/601/);assert.equal(body.presentation.tables.find(t=>t.title==='Lead per canale').rows[0][1],'601');
  console.log('PASS: follow-up context and totals from all 601 rows before limiting 500 visible references');
 })().catch(e=>{console.error(e);process.exitCode=1;});
+const vehicles=load('lib/assistant/vehicles.ts');
+assert.equal(vehicles.vehicleBrand('VW GOLF'),'Volkswagen');assert.equal(vehicles.vehicleBrand('Mercedes-Benz Classe A'),'Mercedes-Benz');assert.equal(vehicles.vehicleBrand('500 1.2'),'Non classificata');
+assert.equal(schema.interpretQuestion('Quali auto abbiamo venduto nel 2025?').kind,'vehicle-sales');
+assert.equal(schema.interpretQuestion('Fasce di prezzo delle auto vendute nel 2025?').kind,'vehicle-sales');
+assert.equal(schema.interpretQuestion('Prezzo medio delle auto vendute nel 2025?').kind,'vehicle-sales');
+for(const value of [0,-3,'n.d.','1,000.00','1.000,123',Infinity])assert.equal(context.assistantInvoiceAmount_(value),null,String(value));
+for(const [value,expected] of [[15000,15000],['€ 15.000,50',15000.5],['15000.50',15000.5],['1.000',1000]])assert.equal(context.assistantInvoiceAmount_(value),expected);
+let vehicleResult={...result('vehicle-sales'),rows:[row('contract',{category:'Contratti registrati · Car One',vehicle:'FIAT PANDA',origin:'Lead',invoiceAmount:10000}),row('contract',{category:'Contratti registrati · Car One',vehicle:'FIAT 500',origin:'Walk-in',invoiceAmount:20000}),row('contract',{category:'Registrazioni provvisorie · AD Motor',vehicle:'VW GOLF',origin:'Lead'})]};
+const vehicleView=summary.presentResult(vehicleResult);assert.equal(vehicleView.metrics.find(m=>m.label.startsWith('Prezzo mediano')).value,'15.000 €');assert.equal(vehicleView.tables.find(t=>t.title.startsWith('Fasce')).rows.at(-1)[1],'1');assert.match(vehicleView.message,/riferimento concordato è IMP. FATT./);assert.equal(vehicleView.tables.find(t=>t.title==='Marche registrate').rows.find(r=>r[0]==='Volkswagen')[2],'1');
+// CAR 2024's invoice column differs from 2025: identify IMP. FATT. by header, never by old revenue offsets.
+const h2024=['NR','DATA','CLIENTE','MARCA-MODELLO','TARGA','VENDITORE','N/U/S','PR','FIN','IMP FIN','IMP. FATT.','AGENZIA','NR FT','ART15'];
+const raw2024=['2024-01-02','A','FIAT PANDA','AA111AA','CAIRONI','U','','','',12000,500,'',''];
+const historicSheet={getName:()=> 'CAR 2024',getSheetId:()=>1,getLastRow:()=>2,getLastColumn:()=>14,getRange:(r)=>({getValues:()=>[raw2024],getDisplayValues:()=>[h2024]})};
+context.SALES_ID='sales';context.SpreadsheetApp={openById:()=>({...book,getSheetByName:name=>name==='CAR 2024'?historicSheet:null})};context.findSheetByNames_=(b,names)=>names.map(n=>b.getSheetByName(n)).find(Boolean);context.saleKey_=(...v)=>v.join('|');
+vehicleResult={...result('vehicle-sales'),query:{kind:'vehicle-sales',from:'2024-01-01',to:'2024-12-31'}};context.assistantContracts_(vehicleResult,now);assert.equal(vehicleResult.rows.length,1);assert.equal(vehicleResult.rows[0].invoiceAmount,12000);assert.equal(vehicleResult.rows[0].vehicle,'FIAT PANDA');
+const validVehicle={...result('vehicle-sales'),sources:[{name:'CAR',status:'available',readAt:now.toISOString(),coverage:'test',issues:[]}],rows:[row('contract',{category:'Contratti registrati · Car One',vehicle:'FIAT PANDA',origin:'Lead',invoiceAmount:12000})]};
+assert.equal(server.normalizeResult(validVehicle,validVehicle.query).rows[0].invoiceAmount,12000);
+assert.throws(()=>server.normalizeResult({...validVehicle,rows:[{...validVehicle.rows[0],category:'Registrazioni provvisorie · Car One'}]},validVehicle.query));
+console.log('PASS: vehicle descriptions, invoice header mapping CAR 2024, strict amounts, weighted price statistics, brands and exclusion of mixed provisional commissions');

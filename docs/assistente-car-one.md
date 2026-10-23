@@ -148,3 +148,13 @@ Prova nel CRM principale con due domande reali (contratti 2025 e “E nel 2024?�
 ### Rilascio coordinato
 
 Non sostituire candidate-v52.gs, che resta il riferimento pubblicato. scripts/build-assistant-script.mjs ora genera candidate-v53.gs dalla stessa base verificata, con adapter esteso. Prima aggiornare e collaudare la versione Apps Script dello stesso deployment (URL e permessi invariati), poi frontend. Non creare trigger, non eseguire receiver Infocar o funzioni di scrittura. Rollback: versione 52 Apps Script e frontend PR6. Finché v53 non è pubblicato, le nuove query devono fallire esplicitamente: non ripiegare sui totali o sullo snapshot della dashboard.
+
+### Veicoli venduti e prezzo di riferimento concordato
+
+Scelta esplicita dell’utente: **IMP. FATT.**. Query vehicle-sales: stesse vendite valide dei contratti, descrizione marca-modello e importo fattura individuato dall’intestazione, non da offset fissi. In CAR 2024 la colonna differisce dal 2025: il campo AGENZIA non deve finire nel prezzo. In AD Motor la posizione differisce nuovamente.
+
+Fasce prezzo basate su IMP. FATT.: sotto 10.000 €, 10–15 mila, 15–20 mila, 20–25 mila, 25–30 mila, 30–40 mila, da 40 mila. Confini inferiori inclusi e superiori esclusi. Importi positivi numerici o formati monetari validati rigorosamente; zero, mancanti e valori ambigui fuori dai calcoli, mantenendo il veicolo nei conteggi. Media pesata sui singoli record valorizzati e mediana, con denominatore visibile. Il mese corrente VAL. VENDITA / PROVVIGIONE è escluso dai prezzi perché mescola due concetti.
+
+Classificazione marca solo da prefisso esplicito con alias noti; modello raggruppato per descrizione normalizzata di maiuscole e spazi, senza inventare allestimenti o segmenti. Tabelle marche, top 20 descrizioni modello e fasce. Descrizioni non classificate esplicite. I campi KM e ANNO del prospetto corrente sono nella sezione PERMUTA: non vengono attribuiti al mezzo venduto. Segmento, alimentazione e target/obiettivo futuro di prezzo non sono registrati nelle fonti analizzate.
+
+Domande locali: “Quali auto abbiamo venduto nel 2025?”, “Marche e modelli venduti nel 2026”, “Fasce di prezzo delle auto vendute nel 2025”, “Prezzo medio delle auto vendute nel 2025”. Seguito “E le auto vendute?” conserva il periodo. Voce e chat usano la stessa presentazione server.
