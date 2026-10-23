@@ -122,3 +122,39 @@ I controlli manuali sono ora chiamati “Opzioni avanzate”; periodo, definizio
 Verifica automatica aggiuntiva: node scripts/test-assistant-voice.cjs, con simulazione di risultati cumulativi, callback tardive, errori senza onend, timeout di stop, limite testo, sostituzione audio e pulizia all’uscita. Non sostituisce il collaudo con microfono e altoparlanti reali.
 
 Riferimento tecnico: https://developer.mozilla.org/en-US/docs/Web/API/SpeechRecognition
+
+## Estensione commerciale v53 (candidato, non pubblicato)
+
+Nuove query controllate: leads, quotes, appointments, funnel, lead-management. Stesso accesso CRM e sola lettura. Il catalogo di Gemini è aggiornato; riconoscimento locale di anni espliciti, oggi e questo mese/anno Europe/Rome e continuazioni “E i lead?”, “E i preventivi?”, “E gli appuntamenti?”, “E le conversioni?”. Non si inviano righe, risultati o cronologia al modello. Restano non disponibili filtri individuali e confronti simultanei fra periodi; non ignorarli.
+
+- Lead: data ingresso da timestamp ISO con offset esplicito, Date Google o data italiana rigorosa. La data viene riportata in Europe/Rome; gli istanti UTC rimangono verificabili. Testi senza anno, date impossibili e correzioni automatiche esclusi. Timestamp locali italiani mantengono solo il giorno, senza inventare un istante UTC.
+- Fonti lead: Foglio1 per mese corrente, archivi dal catalogo e nomi riconosciuti, Maggio 2025 verificato; giuseppe lead viene letto anche per arrivi precedenti. Ogni mese storico senza archivio dichiarato è unavailable: non dedurre zero. Gli archivi senza header mantengono la prima riga di dati. Righe fuori mese del proprio archivio escluse e segnalate.
+- ID: la colonna LEAD ID contiene anche valori non identificativi (struttura disallineata in alcune righe). Solo numeri di 10–30 cifre o UUID formali vengono trattati come ID. Gli altri sono dichiarati non validi; non eliminano richieste distinte. Due ID espliciti diversi restano due richieste, anche con contatto/istante uguali. Lo stesso ID con eventi discordanti è escluso e segnalato. Senza ID si confronta la tupla esatta istante/giorno + email + telefono + nome normalizzati, senza somiglianze; richieste in istanti diversi restano distinte. Copie esatte escluse con riga di riferimento, senza deduplicare semplicemente per persona.
+- Preventivi: conteggio delle righe presenti in Make Leads / Preventivi, senza generazione di preventivi da contratti. Copertura storica non certificata: sempre esplicitata come parziale. Non confondere con PREVENTIVI_OPERATIVI, che governa richiami e stato attuale.
+- Appuntamenti: eventi APP dei due calendari, per data appuntamento, con SI/NO/pending. Show rate = SI/(SI+NO); pendenti fuori denominatore. Eventi futuri sono programmati, non presenze.
+- Feedback attuale: assegnazioni presenti nei sei fogli venditori per data ingresso, con/senza feedback letto oggi. Non persone uniche né stato storico: uno stesso lead assegnato a due venditori non è una sola assegnazione. Nessuna certificazione del momento della chiamata.
+- Funnel: rapporti di periodo, numeratore e denominatore visibili, non conversioni di coorte. Contratti da lead secondo Origine; origine mancante impedisce il rapporto completo da lead. Fonti mancanti e denominatore zero → n.d.; su fonti parziali i rapporti sono dichiarati osservati. Non calcolare conversione individuale o per canale usando matching per nome/telefono. Ufficiali e provvisori distinti nei record e richiamati nella sintesi.
+
+Calcoli e tabelle per giorno, mese e canale prodotti dal backend. Fino a 50.000 righe validate per query; oltre il limite nessun totale. Cache server compressa 120 secondi per evitare il limite di dimensione della Data Cache. Le risposte API restituiscono al massimo 500 riferimenti: recordCount è il numero completo già elaborato, presentazione e totali sono calcolati prima del taglio. L’UI indica “500 su N” e invita a restringere il periodo per consultare gli altri record. Nessun totale è dedotto da un campione.
+
+### Verifica reale e anomalie
+
+Lettura in sola lettura del 23/10/2026 di Foglio1 e giuseppe lead: il nuovo adapter, eseguito localmente sui valori letti, trova 1.219 eventi dal 1 al 23 ottobre, 25 il 23 ottobre e 42 il 1 ottobre. Un conteggio indipendente di timestamp ISO e tuple esatte produce gli stessi tre risultati. Sono riscontri datati, non totali da inserire nel prompt. Le anomalie ID e una data non valida rendono il risultato parziale: non è una garanzia di assenza di righe mancanti. Questo test non certifica ancora il deployment Apps Script v53 o una risposta live dell’API aggiornata.
+
+### Scorrimento chat
+
+Prova nel CRM principale con due domande reali (contratti 2025 e “E nel 2024?”): campo fisso su desktop, nessun salto della pagina riprodotto. La correzione evita scrollIntoView sugli antenati, limita lo scorrimento al transcript, fissa il contenitore al viewport e segue visualViewport quando appare la tastiera. Focus con preventScroll; su dispositivi touch non si richiama il focus alla fine di una risposta aprendo nuovamente la tastiera. Da verificare sul dispositivo su cui è stato segnalato il problema.
+
+### Rilascio coordinato
+
+Non sostituire candidate-v52.gs, che resta il riferimento pubblicato. scripts/build-assistant-script.mjs ora genera candidate-v53.gs dalla stessa base verificata, con adapter esteso. Prima aggiornare e collaudare la versione Apps Script dello stesso deployment (URL e permessi invariati), poi frontend. Non creare trigger, non eseguire receiver Infocar o funzioni di scrittura. Rollback: versione 52 Apps Script e frontend PR6. Finché v53 non è pubblicato, le nuove query devono fallire esplicitamente: non ripiegare sui totali o sullo snapshot della dashboard.
+
+### Veicoli venduti e prezzo di riferimento concordato
+
+Scelta esplicita dell’utente: **IMP. FATT.**. Query vehicle-sales: stesse vendite valide dei contratti, descrizione marca-modello e importo fattura individuato dall’intestazione, non da offset fissi. In CAR 2024 la colonna differisce dal 2025: il campo AGENZIA non deve finire nel prezzo. In AD Motor la posizione differisce nuovamente.
+
+Fasce prezzo basate su IMP. FATT.: sotto 10.000 €, 10–15 mila, 15–20 mila, 20–25 mila, 25–30 mila, 30–40 mila, da 40 mila. Confini inferiori inclusi e superiori esclusi. Importi positivi numerici o formati monetari validati rigorosamente; zero, mancanti e valori ambigui fuori dai calcoli, mantenendo il veicolo nei conteggi. Media pesata sui singoli record valorizzati e mediana, con denominatore visibile. Il mese corrente VAL. VENDITA / PROVVIGIONE è escluso dai prezzi perché mescola due concetti.
+
+Classificazione marca solo da prefisso esplicito con alias noti; modello raggruppato per descrizione normalizzata di maiuscole e spazi, senza inventare allestimenti o segmenti. Tabelle marche, top 20 descrizioni modello e fasce. Descrizioni non classificate esplicite. I campi KM e ANNO del prospetto corrente sono nella sezione PERMUTA: non vengono attribuiti al mezzo venduto. Segmento, alimentazione e target/obiettivo futuro di prezzo non sono registrati nelle fonti analizzate.
+
+Domande locali: “Quali auto abbiamo venduto nel 2025?”, “Marche e modelli venduti nel 2026”, “Fasce di prezzo delle auto vendute nel 2025”, “Prezzo medio delle auto vendute nel 2025”. Seguito “E le auto vendute?” conserva il periodo. Voce e chat usano la stessa presentazione server.

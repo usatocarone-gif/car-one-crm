@@ -1,6 +1,7 @@
+import { gzipSync, gunzipSync } from "node:zlib";
 import { timingSafeEqual } from "node:crypto";
 import { unstable_cache } from "next/cache";
-import type { AssistantQuery, AssistantResult } from "./schema";
+import type { AssistantQuery, AssistantResult, AssistantRow } from "./schema";
 import { validDay } from "./schema";
 import { quotePriority } from "../operational-quotes";
 import type { OperationalQuote } from "../types";
@@ -19,17 +20,30 @@ function safeLink(value: unknown) {
 }
 export function normalizeResult(value: unknown, query: AssistantQuery): AssistantResult {
   const raw = value as AssistantResult & { operationalQuotes?: OperationalQuote[]; quoteCalendar?: Record<string, boolean> };
-  if (!raw || raw.schemaVersion !== "assistant-v1" || JSON.stringify(raw.query) !== JSON.stringify(query) || !Number.isFinite(Date.parse(raw.generatedAt)) || !Array.isArray(raw.sources) || !raw.sources.length || !Array.isArray(raw.rows) || raw.rows.length > 10000) throw new Error("Formato fonte non supportato");
+  if (!raw || raw.schemaVersion !== "assistant-v1" || JSON.stringify(raw.query) !== JSON.stringify(query) || !Number.isFinite(Date.parse(raw.generatedAt)) || !Array.isArray(raw.sources) || !raw.sources.length || !Array.isArray(raw.rows) || raw.rows.length > 50000) throw new Error("Formato fonte non supportato");
   const sources = raw.sources.map(s => {
     if (!s || !["available", "partial", "unavailable"].includes(s.status) || typeof s.name !== "string" || typeof s.coverage !== "string" || !Number.isFinite(Date.parse(s.readAt)) || !Array.isArray(s.issues) || s.issues.some(x => typeof x !== "string")) throw new Error("Metadati fonte non validi");
-    return { name:s.name, status:s.status, readAt:s.readAt, coverage:s.coverage, issues:s.issues };
+    if(s.dataset!==undefined&&!["leads","quotes","appointments","contracts","management"].includes(s.dataset))throw new Error("Dataset non valido");
+    return { dataset:s.dataset, name:s.name, status:s.status, readAt:s.readAt, coverage:s.coverage, issues:s.issues };
   });
-  const rows = raw.rows.map(r => {
+  const rows:AssistantRow[] = raw.rows.map(r => {
     if (!r || !validDay(r.date) || r.date < query.from || r.date > query.to || typeof r.seller !== "string" || typeof r.category !== "string" || !["number", "string"].includes(typeof r.value) || (typeof r.value === "number" && !Number.isFinite(r.value)) || !r.evidence || typeof r.evidence.locatorId !== "string" || typeof r.evidence.source !== "string" || !safeLink(r.evidence.url)) throw new Error("Record fonte non valido");
-    if (["contracts", "lead-contracts"].includes(query.kind) && (r.value !== 1 || !/^(Contratti registrati|Registrazioni provvisorie) · (Car One|AD Motor)$/.test(r.category) || typeof r.origin !== "string")) throw new Error("Contratto non valido");
+    if (["contracts", "lead-contracts", "vehicle-sales"].includes(query.kind) && (r.value !== 1 || !/^(Contratti registrati|Registrazioni provvisorie) · (Car One|AD Motor)$/.test(r.category) || typeof r.origin !== "string")) throw new Error("Contratto non valido");
     if (query.kind === "lead-contracts" && !isLeadContractOrigin(r.origin || "")) throw new Error("Origine contratto non consentita");
+    if(query.kind==="vehicle-sales"&&(typeof r.vehicle!=="string"||r.vehicle.length>300||(r.invoiceAmount!==undefined&&(!Number.isFinite(r.invoiceAmount)||r.invoiceAmount<=0||r.invoiceAmount>10_000_000))))throw new Error("Veicolo o importo fattura non valido");
+    if(query.kind==="vehicle-sales"&&r.category.startsWith("Registrazioni provvisorie")&&r.invoiceAmount!==undefined)throw new Error("Valore provvisorio non utilizzabile come importo fattura");
+    const metrics=["lead","quote","appointment","contract","management"];
+    const newKinds=["leads","quotes","appointments","funnel","lead-management"];
+    if (newKinds.includes(query.kind)) {
+      const expected:Record<string,string>={leads:"lead",quotes:"quote",appointments:"appointment","lead-management":"management"};
+      if(!metrics.includes(r.metric||"") || (expected[query.kind]&&r.metric!==expected[query.kind]) || r.value!==1)throw new Error("Misura fonte non valida");
+      if(r.metric==="contract"&&(!/^(Contratti registrati|Registrazioni provvisorie) · (Car One|AD Motor)$/.test(r.category)||typeof r.origin!=="string"))throw new Error("Contratto non valido");
+      if(r.metric==="appointment"&&!["presented","no-show","pending"].includes(r.status||""))throw new Error("Esito non valido");
+      if(r.metric==="management"&&typeof r.feedback!=="boolean")throw new Error("Feedback non valido");
+      if(r.metric==="lead"&&(typeof r.channel!=="string"||(r.arrivedAt!=null&&(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(r.arrivedAt)||!Number.isFinite(Date.parse(r.arrivedAt))||new Date(r.arrivedAt).toISOString()!==r.arrivedAt||new Intl.DateTimeFormat("sv-SE",{timeZone:"Europe/Rome"}).format(new Date(r.arrivedAt))!==r.date))))throw new Error("Arrivo lead non valido");
+    }
     if (query.kind === "lead-quality" && (!Number.isSafeInteger(r.due) || !Number.isSafeInteger(r.managed) || r.due! < 0 || r.managed! < 0 || r.managed! > r.due! || !["evening-observation", "reconstructed"].includes(r.measurement || ""))) throw new Error("Misurazione non valida");
-    return {date:r.date,category:r.category,seller:r.seller,value:r.value,origin:r.origin,due:r.due,managed:r.managed,measurement:r.measurement,evidence:{locatorId:r.evidence.locatorId,url:r.evidence.url,source:r.evidence.source,row:r.evidence.row,fingerprint:r.evidence.fingerprint}};
+    return {vehicle:r.vehicle,invoiceAmount:r.invoiceAmount,channel:r.channel,arrivedAt:r.arrivedAt,metric:r.metric,status:r.status,feedback:r.feedback,date:r.date,category:r.category,seller:r.seller,value:r.value,origin:r.origin,due:r.due,managed:r.managed,measurement:r.measurement,evidence:{locatorId:r.evidence.locatorId,url:r.evidence.url,source:r.evidence.source,row:r.evidence.row,fingerprint:r.evidence.fingerprint}};
   });
   if (query.kind === "agenda-quotes" && raw.operationalQuotes) {
     if (!Array.isArray(raw.operationalQuotes) || raw.operationalQuotes.length > 10000) throw new Error("Preventivi non validi");
@@ -51,9 +65,10 @@ const cachedRead = unstable_cache(async (endpoint: string, kind: string, from: s
   const response = await fetch(url,{cache:"no-store",signal:AbortSignal.timeout(110000)});
   if (!response.ok) throw new Error("Fonte non disponibile");
   const value = await response.json();
-  return normalizeResult(value,{kind:kind as AssistantQuery["kind"],from,to});
-},["assistant-v1"],{revalidate:120});
+  return gzipSync(JSON.stringify(normalizeResult(value,{kind:kind as AssistantQuery["kind"],from,to}))).toString("base64");
+},["assistant-v2-commercial"],{revalidate:120});
 export async function readAssistant(query: AssistantQuery) {
   if (!process.env.GOOGLE_APPS_SCRIPT_URL || !process.env.GOOGLE_APPS_SCRIPT_TOKEN) throw new Error("Fonte assistente non configurata");
-  return cachedRead(process.env.GOOGLE_APPS_SCRIPT_URL,query.kind,query.from,query.to);
+  const compressed=await cachedRead(process.env.GOOGLE_APPS_SCRIPT_URL,query.kind,query.from,query.to);
+  return JSON.parse(gunzipSync(Buffer.from(compressed,"base64")).toString("utf8")) as AssistantResult;
 }

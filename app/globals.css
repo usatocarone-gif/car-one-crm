@@ -567,3 +567,21 @@ select option { color: #202733; background: #fff; font-weight: 400; }
 .chat-voice-status{font-size:12px;line-height:1.5;color:#985721;padding:8px 12px;margin:0 0 8px;background:#fff8e9;border-radius:10px}
 .chat-voice-help{position:absolute;bottom:calc(100% + 10px);left:8px;right:8px;max-height:60dvh;overflow:auto;z-index:5;background:white;border:1px solid #e4e4e4;border-radius:17px;box-shadow:0 12px 50px #00000013;padding:18px}
 .chat-voice-help strong{font-size:14px}.chat-voice-help p{font-size:12px;line-height:1.6;color:#777}.chat-voice-help button{padding:8px 13px;border-radius:8px;background:#252525;color:white;font-size:12px!important;margin-right:8px}.chat-voice-help button+button{background:#f2f2f2;color:#555}
+
+
+/* The assistant owns one viewport: only its transcript scrolls. */
+.app-shell:has(.assistant-chat){position:fixed;inset:0;height:var(--assistant-viewport-height,100dvh);min-height:0;overflow:hidden;grid-template-rows:minmax(0,1fr)}
+.app-shell:has(.assistant-chat)>.sidebar{min-height:0;overflow-y:auto}
+.content:has(.assistant-chat){min-height:0;overflow:hidden;height:100%}
+.assistant-chat{height:100%;min-height:0}
+.chat-thread{overflow-anchor:none}
+.chat-breakdown{border-top:1px solid #eee;margin:8px 0;font-size:12px;color:#666}
+.chat-breakdown summary{cursor:pointer;padding:12px 0;min-height:44px}
+.chat-breakdown table{min-width:260px}
+@media(max-width:760px){
+ .app-shell:has(.assistant-chat){display:flex;flex-direction:column}
+ .app-shell:has(.assistant-chat)>.sidebar{flex-shrink:0;overflow-x:auto;overflow-y:hidden}
+ .content:has(.assistant-chat){flex:1;min-height:0;height:auto}
+ .chat-composer textarea{font-size:16px}
+ .chat-disclaimer{font-size:9px;max-height:45px;overflow:auto}
+}
