@@ -30,6 +30,12 @@ assert.match(summary.summarize({...raw,rows:[],sources:[{...raw.sources[0],statu
 const quality={...raw,query:{...query,kind:'lead-quality'},rows:[{due:1,managed:1,measurement:'evening-observation'},{due:9,managed:0,measurement:'evening-observation'},{due:100,managed:100,measurement:'reconstructed'}]};
 assert.match(summary.summarize(quality),/10%/); // weighted; reconstructed excluded
 assert.match(summary.summarize({...quality,rows:[]}),/Percentuale non disponibile/);
+assert.equal(summary.presentResult({...raw,truncated:true}).metrics.length,0);
+assert.equal(summary.presentResult({...raw,rows:[],sources:[{...raw.sources[0],status:'unavailable'}]}).title,'Non ho dati sufficienti');
+assert.equal(summary.presentResult(raw).title,'1 contratto registrato');
+assert.equal(summary.presentResult({...quality,sources:[{...raw.sources[0],status:'partial'}]}).title,'10% con feedback registrato');
+assert.equal(summary.presentResult({...quality,sources:[{...raw.sources[0],status:'partial'}]}).partial,true);
+
 const formatDate=(date,tz,pattern)=>{
  const day=new Intl.DateTimeFormat('sv-SE',{timeZone:tz}).format(date);
  return pattern==='yyyy-MM-dd'?day:pattern==='HH:mm'?new Intl.DateTimeFormat('en-GB',{timeZone:tz,hour:'2-digit',minute:'2-digit'}).format(date):day;
@@ -114,6 +120,14 @@ async function testGemini(){
   for(const question of ['cliente di nome Mario Rossi','email test@example.test','targa AB123CD','telefono 3331234567','vedi https://example.test'])await assert.rejects(g.planWithGemini(question));
   assert.equal(sent,0);
   assert.equal((await g.interpretAssistantQuestion('Quanti contratti abbiamo nel 2025?')).engine,'local');assert.equal(sent,0);
+  const previous={kind:'contracts',from:'2025-01-01',to:'2025-12-31'};
+  let follow=await g.interpretAssistantQuestion('E nel 2024?',previous);assert.equal(follow.query.from,'2024-01-01');assert.equal(follow.query.to,'2024-12-31');
+  follow=await g.interpretAssistantQuestion('E quelli da lead?',previous);assert.equal(follow.query.kind,'lead-contracts');assert.equal(follow.query.from,previous.from);
+  follow=await g.interpretAssistantQuestion('E l’anno prima?',{...previous,from:'2026-01-01',to:'2026-10-23'});assert.equal(follow.query.to,'2025-10-23');
+  await assert.rejects(g.interpretAssistantQuestion('E nel 2025?',{...previous,from:'2024-02-29',to:'2024-02-29'}));
+  await assert.rejects(g.interpretAssistantQuestion('E l’anno prima?',{...previous,from:'2024-01-01',to:'2024-12-31'}));
+  await assert.rejects(g.interpretAssistantQuestion('E nel 2024?',{...previous,seller:'test'}));assert.equal(sent,0);
+
   assert.equal((await g.planWithGemini('Quante vendite registrate nel 2024?',new Date('2026-10-22T23:30:00Z'))).from,'2024-01-01');
   assert.ok(!last.url.includes('synthetic-key'));assert.equal(last.init.headers['x-goog-api-key'],'synthetic-key');
   const payload=JSON.parse(last.init.body),question=JSON.parse(payload.contents[0].parts[0].text);

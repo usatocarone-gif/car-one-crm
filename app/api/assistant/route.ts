@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { authenticated, readAssistant } from "@/lib/assistant/server";
 import { validateQuery } from "@/lib/assistant/schema";
 import { GeminiUnavailable, geminiConfigured, interpretAssistantQuestion } from "@/lib/assistant/gemini";
-import { DEFINITIONS, summarize } from "@/lib/assistant/summary";
+import { DEFINITIONS, summarize, presentResult } from "@/lib/assistant/summary";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const headers = {"Cache-Control":"private, no-store, max-age=0"};
@@ -22,7 +22,7 @@ export async function POST(request: Request) {
     let size=0, text=""; const decoder=new TextDecoder();
     while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>4096){await reader.cancel();throw new Error("Domanda troppo lunga");}text+=decoder.decode(value,{stream:true});}
     const body=JSON.parse(text+decoder.decode());
-    if (body && typeof body === "object" && Object.keys(body).length===1 && typeof body.question==="string") ({query,engine}=await interpretAssistantQuestion(body.question));
+    if (body && typeof body === "object" && !Array.isArray(body) && Object.keys(body).every(k=>["question","context"].includes(k)) && typeof body.question==="string") ({query,engine}=await interpretAssistantQuestion(body.question,body.context===undefined?undefined:validateQuery(body.context)));
     else query=validateQuery(body);
   } catch(error) {
     if (error instanceof GeminiUnavailable) return NextResponse.json({status:"unavailable",error:"Gemini non disponibile o limite temporaneo raggiunto. Puoi usare i controlli indicatore e periodo, senza AI."},{status:503,headers});
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
   }
   try {
     const result=await readAssistant(query);
-    return NextResponse.json({...result,engine,resultId:randomUUID(),definition:DEFINITIONS[query.kind],summary:summarize(result),filters:"Tutta l’azienda; nessun filtro venditore; Europe/Rome. Date incluse."+(query.kind==="lead-contracts"?" Solo origini lead/digitali riconosciute dal CRM.":"")},{headers});
+    return NextResponse.json({...result,engine,presentation:presentResult(result),resultId:randomUUID(),definition:DEFINITIONS[query.kind],summary:summarize(result),filters:"Tutta l’azienda; nessun filtro venditore; Europe/Rome. Date incluse."+(query.kind==="lead-contracts"?" Solo origini lead/digitali riconosciute dal CRM.":"")},{headers});
   } catch {
     // No raw upstream errors, customer data, URLs or API secrets in client/log output.
     return NextResponse.json({status:"unavailable",error:"Fonte assistente non disponibile o versione Apps Script non compatibile. Nessun numero calcolato."},{status:503,headers});
