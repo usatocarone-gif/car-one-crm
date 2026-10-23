@@ -1,0 +1,32 @@
+const {readFileSync}=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),ts=require('typescript');
+const modules={};
+function load(file,globals={}){const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,require:n=>modules[n]||require(n),Buffer,URL,Date,Intl,AbortSignal,process,TextDecoder,Response,Request,...globals});return exports;}
+modules['./schema']=load('lib/assistant/schema.ts');modules['../contract-origin']=load('lib/contract-origin.ts');
+modules['./vehicles']=load('lib/assistant/vehicles.ts');modules['./analytics']=load('lib/assistant/analytics.ts');
+modules['./insights']=load('lib/assistant/insights.ts');modules['./conversation']=load('lib/assistant/conversation.ts');
+const summary=load('lib/assistant/summary.ts'),planner=load('lib/assistant/gemini.ts',{fetch:()=>{throw Error('No provider call expected');}});
+const source={name:'test',status:'available',readAt:'2026-10-23T10:00:00Z',coverage:'test',issues:[]};
+const row={date:'2026-10-01',category:'Contratti registrati · Car One',seller:'CAIRONI',value:1,origin:'Lead',evidence:{locatorId:'test',source:'test',url:'https://docs.google.com/spreadsheets/d/test'}};
+const result=(kind,extra={})=>({schemaVersion:'assistant-v1',query:{kind,from:'2026-10-01',to:'2026-10-23'},generatedAt:'2026-10-23T10:00:00Z',sources:[source],rows:[row],truncated:false,...extra});
+let r=result('vehicle-sales',{rows:[{...row,vehicle:'FIAT PANDA',invoiceAmount:10000},{...row,vehicle:'FIAT 500'}]});
+let view=summary.presentResult(r);assert.match(view.insights[0].observation,/1 record su 2/);assert.match(view.insights[0].action,/costo, stock disponibile e tempi di vendita/);
+view=summary.presentResult({...r,sources:[{...source,status:'partial'}]});assert.equal(view.insights.length,2);assert.match(view.insights[0].observation,/copertura è parziale/);
+view=summary.presentResult({...r,sources:[{...source,status:'unavailable'}]});assert.equal(view.insights.length,1);assert.match(view.insights[0].action,/prima di prendere decisioni/);assert.doesNotMatch(view.insights[0].action,/acquisti|redistribuzioni/);
+view=summary.presentResult({...r,truncated:true});assert.equal(view.insights.length,1);assert.match(view.insights[0].action,/Restringi/);assert.doesNotMatch(view.insights[0].observation,/2/);
+view=summary.presentResult({...r,rows:[]});assert.match(view.insights[0].toCheck,/periodo, venditore/);
+view=summary.presentResult({...r,rows:[],sources:[{...source,status:'partial'}]});assert.match(view.insights[0].toCheck,/non permette.*zero/);
+view=summary.presentResult(result('appointments',{rows:[{...row,date:'2026-10-22',metric:'appointment',status:'pending'},{...row,date:'2026-10-24',metric:'appointment',status:'pending'}]}));assert.match(view.insights[0].observation,/1 appuntamento precedente/);assert.match(view.insights[0].toCheck,/non significa no-show/);
+view=summary.presentResult(result('lead-management',{rows:[{...row,metric:'management',feedback:false}]}));assert.match(view.insights[0].toCheck,/non dimostra.*non abbia lavorato/);
+view=summary.presentResult(result('contracts',{query:{kind:'contracts',from:'2026-01-01',to:'2026-12-31',analysis:'seller-ranking'}}));assert.match(view.insights[0].observation,/non il lavoro svolto/);assert.match(view.insights[0].action,/opportunità|assegnazioni/);
+view=summary.presentResult(result('funnel',{query:{kind:'funnel',from:'2026-10-01',to:'2026-10-23',analysis:'lead-conversion'},rows:[{...row,metric:'contract'},{...row,metric:'management',feedback:true}]}));assert.match(view.insights[1].action,/Non assegnare un vincitore/);
+const query={kind:'contracts',from:'2026-10-19',to:'2026-10-23',analysis:'period-comparison',compareFrom:'2026-10-12',compareTo:'2026-10-16'};
+r=result('contracts',{query,sources:[{...source,name:'Periodo attuale · test'},{...source,name:'Periodo precedente · test'}],rows:[row,row,{...row,comparisonPeriod:true}]});
+view=summary.presentResult(r);assert.match(view.insights[0].observation,/2.*1.*differenza 1/);assert.match(view.insights[0].toCheck,/non cause dimostrate/);
+view=summary.presentResult({...r,sources:r.sources.map(s=>({...s,status:'partial'}))});assert.doesNotMatch(view.insights.map(i=>i.observation).join(' '),/differenza 1/);
+assert.ok(view.insights.length<=2);
+assert.doesNotMatch(JSON.stringify(view.insights),/guadagno|aumenta il budget|licenzia/);
+console.log('PASS: grounded counts, hypotheses separated, missing/truncated sources, no-show/feedback caveats, comparison coverage and deterministic insights');
+(async()=>{for(const question of ['Cosa emerge?','Perché?','Cosa dovrei controllare?','Quali spunti di ragionamento?','Come possiamo migliorare?']){
+ const answer=await planner.interpretAssistantQuestion(question,{kind:'vehicle-sales',from:'2026-01-01',to:'2026-12-31',brand:'Alfa Romeo',model:'STELVIO',seller:'CAIRONI'});
+ assert.equal(answer.engine,'local');assert.equal(answer.query.brand,'Alfa Romeo');assert.equal(answer.query.model,'STELVIO');assert.equal(answer.query.seller,'CAIRONI');
+}console.log('PASS: reasoning follow-ups keep all validated filters without an AI request');})().catch(e=>{console.error(e);process.exitCode=1;});
